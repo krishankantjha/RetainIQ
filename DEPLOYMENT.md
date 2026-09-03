@@ -203,14 +203,23 @@ To protect public endpoints, the backend uses a sliding-window rate limiter.
 The platform implements a strict SHA-256 integrity verification system. If model artifacts are regenerated, `artifacts_manifest.json` must be updated, otherwise the application server will refuse to start.
 
 ### Retraining Workflow
-```makefile
-# Run retraining and regenerate artifact integrity signatures
-retrain:
-	python ml/training/train.py
-	python ml/segmentation/train_autoencoder.py
-	python ml/segmentation/kmeans.py
-	python scripts/generate_manifest.py
+
+See **[docs/ml_pipeline.md](docs/ml_pipeline.md)** for the full v1.1 run order. Summary:
+
+```bash
+python ml/preprocessing/clean.py
+python ml/preprocessing/pipeline.py
+python ml/segmentation/train_autoencoder.py
+python ml/segmentation/kmeans.py
+python ml/training/ensemble.py
+python ml/training/threshold.py
+python ml/training/confusion_matrix.py
+python ml/training/calibration.py
+python ml/explainability/shap_global.py
+python scripts/generate_manifest.py
 ```
+
+Production classifier: `ml/artifacts/models/ensemble_model.pkl` (not `model.pkl`).
 
 ### GitHub Actions CI/CD Skeleton
 ```yaml
@@ -227,7 +236,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r backend/requirements-dev.txt
       - name: Run training pipeline & signatures
         run: make retrain
       - name: Run test suite

@@ -26,7 +26,9 @@ services:
     container_name: retainiq-backend
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-retainiq}:${POSTGRES_PASSWORD:-retainiq_secure_pass}@db:5432/${POSTGRES_DB:-customer_retention}
-      - JWT_SECRET=${JWT_SECRET:-super-secret-key-change-in-production-1234567890}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set}
+      - ALLOW_USER_REGISTRATION=${ALLOW_USER_REGISTRATION:-false}
       - APP_ENV=${APP_ENV:-production}
       - DEBUG=${DEBUG:-False}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501,https://retainiq.com}
