@@ -19,6 +19,7 @@ if base_dir not in sys.path:
     sys.path.insert(0, base_dir)
 
 from configs.dataset_config import config_loader
+from ml.training.natural_features import baseline_train_csv_path, load_baseline_train_frame
 
 logger = logging.getLogger("ml.training.feature_drift")
 
@@ -103,16 +104,13 @@ def detect_feature_drift(X_inference: pd.DataFrame, random_seed: int = 42) -> di
     applying KS-test and Chi-Square/PSI tests respectively.
     """
     logger.info("Starting enhanced feature drift detection check...")
-    
-    # 1. Load baseline training features
-    config_train_path = config_loader.training["data_paths"]["train_features"]
-    train_csv = config_train_path if os.path.isabs(config_train_path) else os.path.join(base_dir, config_train_path)
-    
-    if not os.path.exists(train_csv):
-        logger.error(f"Training features CSV not found at: {train_csv}")
-        raise FileNotFoundError(f"Training features CSV not found at: {train_csv}")
-        
-    df_train = pd.read_csv(train_csv)
+
+    baseline_path = baseline_train_csv_path()
+    if not os.path.exists(baseline_path):
+        logger.error(f"Baseline training features CSV not found at: {baseline_path}")
+        raise FileNotFoundError(f"Baseline training features CSV not found at: {baseline_path}")
+
+    df_train = load_baseline_train_frame(include_target=True)
     
     # 2. Extract continuous columns list from config
     seg_cfg = config_loader.model.get("segmentation")
@@ -155,7 +153,8 @@ def detect_feature_drift(X_inference: pd.DataFrame, random_seed: int = 42) -> di
         return {
             "is_drifted": False,
             "drift_ratio": 0.0,
-            "metrics": {}
+            "baseline_source": os.path.basename(baseline_path),
+            "metrics": {},
         }
         
     logger.info(
@@ -239,5 +238,6 @@ def detect_feature_drift(X_inference: pd.DataFrame, random_seed: int = 42) -> di
     return {
         "is_drifted": global_drift,
         "drift_ratio": drift_ratio,
-        "metrics": metrics
+        "baseline_source": os.path.basename(baseline_path),
+        "metrics": metrics,
     }

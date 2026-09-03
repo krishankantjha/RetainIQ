@@ -30,8 +30,8 @@ fi
 # 5. Upgrade package manager and install requirements
 echo "Upgrading pip..."
 python -m pip install --upgrade pip
-echo "Installing dependencies from backend/requirements.txt..."
-pip install -r backend/requirements.txt
+echo "Installing dependencies from backend/requirements-dev.txt..."
+pip install -r backend/requirements-dev.txt
 # 6. Duplicate env template
 if [ ! -f "backend/.env" ]; then
     echo "Creating backend/.env from .env.example..."

@@ -65,17 +65,29 @@ def fix_total_charges(df, logger):
         
     return df_copy
 
-def drop_duplicates(df, logger):
-    """Drop duplicate records from DataFrame explicitly."""
+def drop_duplicates(df, logger, strict_id_unique: bool = False):
+    """Drop duplicate rows; enforce unique customerID (strict mode raises on duplicates)."""
     initial_rows = df.shape[0]
-    df_clean = df.drop_duplicates(keep="first")
+    df_clean = df.copy()
+
+    id_col = config_loader.feature.get("key_column", "customerID")
+    if id_col in df_clean.columns:
+        id_dupes = df_clean[id_col].duplicated(keep="first")
+        id_dropped = int(id_dupes.sum())
+        if id_dropped > 0:
+            if strict_id_unique:
+                raise ValueError("Dataset contains duplicate customer IDs.")
+            logger.warning(f"Dropped {id_dropped} row(s) with duplicate {id_col}.")
+            df_clean = df_clean[~id_dupes]
+
+    df_clean = df_clean.drop_duplicates(keep="first")
     dropped_count = initial_rows - df_clean.shape[0]
-    
-    if dropped_count > 0:
-        logger.warning(f"Dropped {dropped_count} duplicate rows.")
-    else:
+
+    if dropped_count > 0 and not strict_id_unique:
+        logger.warning(f"Dropped {dropped_count} duplicate row(s) total.")
+    elif dropped_count == 0:
         logger.info("Duplicate check passed: 0 duplicate rows found")
-        
+
     return df_clean
 
 def validate_cleaned_data(df, logger):

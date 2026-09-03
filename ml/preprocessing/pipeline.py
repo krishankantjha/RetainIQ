@@ -134,11 +134,14 @@ def run_pipeline(clean_csv_path: str, artifacts_dir: str, processed_dir: str) ->
     # Get output feature names
     feature_names = preprocessor.get_feature_names_out()
 
-    # Reconstruct processed DataFrames
     train_df_raw = pd.DataFrame(X_train_transformed, columns=feature_names)
     train_df_raw[TARGET_COL] = y_train_final.values
 
-    # Apply SMOTE oversampling to training dataset to balance target classes (no leakage risk, test split left untouched)
+    natural_csv_path = os.path.join(processed_dir, "train_features_natural.csv")
+    train_df_raw.to_csv(natural_csv_path, index=False)
+    logger.info(f"Saved natural training features to: {natural_csv_path}")
+
+    # SMOTE for legacy train_features.csv (training scripts use natural_features.py instead)
     X_train_resampled, y_train_resampled = resample_training_data(
         train_df_raw.drop(columns=[TARGET_COL]),
         train_df_raw[TARGET_COL],
@@ -189,7 +192,7 @@ def run_pipeline(clean_csv_path: str, artifacts_dir: str, processed_dir: str) ->
     try:
         from ml.preprocessing.correlation_review import run_correlation_review
         report_path = os.path.join(artifacts_dir, "correlation_report.json")
-        run_correlation_review(train_csv_path, report_path)
+        run_correlation_review(natural_csv_path, report_path)
     except Exception as e:
         logger.warning(f"Failed to run correlation review: {e}")
 

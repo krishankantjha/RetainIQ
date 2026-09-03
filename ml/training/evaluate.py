@@ -1,9 +1,9 @@
 """
-Model evaluation script for RetainIQ.
+Holdout evaluation plots for the production CalibratedGBDTEnsemble.
 
-Loads the trained XGBoost model and evaluating feature matrices, computes performance
-metrics (precision, recall, F1, AUC-ROC, PR-AUC), generates visual evaluation curves,
-and computes SHAP values for model explainability.
+Loads ensemble_model.pkl, scores the holdout set at the operational decision threshold,
+and writes ROC, precision-recall, and confusion-matrix plots. SHAP plots are produced
+by ml/explainability/shap_global.py (not overwritten here).
 """
 
 import os
@@ -17,8 +17,8 @@ base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if base_dir not in sys.path:
     sys.path.insert(0, base_dir)
 from configs.dataset_config import config_loader
+from ml.training.ensemble import CalibratedGBDTEnsemble  # noqa: F401 — required for pickle
 
-# Set matplotlib backend to non-interactive 'Agg' to prevent blocking GUI windows
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -30,37 +30,23 @@ from sklearn.metrics import (
     confusion_matrix,
     roc_curve,
     precision_recall_curve,
-    ConfusionMatrixDisplay
+    ConfusionMatrixDisplay,
 )
-import shap
 
 logger = logging.getLogger("ml.training.evaluate")
 
 
 def evaluate_model(test_features_path: str, artifacts_dir: str) -> None:
-    """
-    Loads test features, aligns feature columns with trained metadata,
-    evaluates classification performance, saves visual evaluation plots,
-    and runs SHAP explainability.
-    """
-    logger.info("Starting model evaluation process")
+    """Evaluate the production ensemble on holdout data and save classification plots."""
+    logger.info("Starting ensemble evaluation on holdout set")
 
-    # Load serialized model and metadata
-    model_path = os.path.join(artifacts_dir, "model.pkl")
-    metadata_path = os.path.join(artifacts_dir, "model_metadata.pkl")
-
-    if not os.path.exists(model_path) or not os.path.exists(metadata_path):
-        raise FileNotFoundError(f"Model or metadata files not found in {artifacts_dir}")
+    model_path = os.path.join(artifacts_dir, "models", "ensemble_model.pkl")
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Ensemble model not found: {model_path}")
 
     with open(model_path, "rb") as f:
-        model = pickle.load(f)
+        ensemble = pickle.load(f)
 
-    with open(metadata_path, "rb") as f:
-        metadata = pickle.load(f)
-
-    logger.info(f"Loaded trained model: {metadata['model_type']}")
-
-    # Load test dataset
     if not os.path.exists(test_features_path):
         raise FileNotFoundError(f"Test features CSV not found: {test_features_path}")
 
@@ -69,47 +55,47 @@ def evaluate_model(test_features_path: str, artifacts_dir: str) -> None:
     y_test = test_df[target_col]
     X_test = test_df.drop(columns=[target_col])
 
-    # Align columns to match the features used in training
-    X_test_aligned = X_test[metadata["feature_names_in"]]
+    feature_names = ensemble.xgb_.feature_names_in_
+    missing_cols = [col for col in feature_names if col not in X_test.columns]
+    if missing_cols:
+        raise ValueError(f"Feature schema mismatch. Missing columns: {missing_cols}")
+    X_test_aligned = X_test[feature_names]
 
-    # Load threshold dynamically from configuration
     threshold = config_loader.model.get("decision_threshold")
     if threshold is None:
         raise ValueError("decision_threshold is missing from configuration")
 
-    # Run prediction using the configured business decision threshold
-    y_prob = model.predict_proba(X_test_aligned)[:, 1]
+    logger.info(f"Using operational threshold: {threshold:.3f}")
+
+    y_prob = ensemble.predict_proba(X_test_aligned)[:, 1]
     y_pred = (y_prob >= threshold).astype(int)
 
-    # Calculate metrics
     auc_roc = roc_auc_score(y_test, y_prob)
     auc_pr = average_precision_score(y_test, y_prob)
 
-    logger.info(f"Evaluation Metrics on Test Set:")
-    logger.info(f"  ROC-AUC Score: {auc_roc:.4f}")
-    logger.info(f"  PR-AUC Score : {auc_pr:.4f}")
+    logger.info("Holdout metrics:")
+    logger.info(f"  ROC-AUC: {auc_roc:.4f}")
+    logger.info(f"  PR-AUC : {auc_pr:.4f}")
 
     report = classification_report(y_test, y_pred)
-    print("\n=== Model Classification Report ===")
+    print("\n=== Ensemble Classification Report (holdout) ===")
     print(report)
 
-    # Ensure plots directory exists
     plots_dir = os.path.join(artifacts_dir, "plots")
     os.makedirs(plots_dir, exist_ok=True)
+    threshold_label = f"{threshold:.2f}"
 
-    # 1. Confusion Matrix Plot
     plt.figure(figsize=(6, 5))
     cm = confusion_matrix(y_test, y_pred)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Non-Churn", "Churn"])
     disp.plot(cmap="Blues", values_format="d")
-    plt.title("Confusion Matrix")
+    plt.title(f"Confusion Matrix (threshold={threshold_label})")
     plt.tight_layout()
     cm_plot_path = os.path.join(plots_dir, "confusion_matrix.png")
     plt.savefig(cm_plot_path)
     plt.close()
     logger.info(f"Saved confusion matrix plot to: {cm_plot_path}")
 
-    # 2. ROC Curve Plot
     plt.figure(figsize=(6, 5))
     fpr, tpr, _ = roc_curve(y_test, y_prob)
     plt.plot(fpr, tpr, color="darkorange", lw=2, label=f"ROC curve (AUC = {auc_roc:.4f})")
@@ -118,7 +104,7 @@ def evaluate_model(test_features_path: str, artifacts_dir: str) -> None:
     plt.ylim([0.0, 1.05])
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
-    plt.title("Receiver Operating Characteristic (ROC) Curve")
+    plt.title("Receiver Operating Characteristic (ROC) Curve — Ensemble")
     plt.legend(loc="lower right")
     plt.tight_layout()
     roc_plot_path = os.path.join(plots_dir, "roc_curve.png")
@@ -126,7 +112,6 @@ def evaluate_model(test_features_path: str, artifacts_dir: str) -> None:
     plt.close()
     logger.info(f"Saved ROC curve plot to: {roc_plot_path}")
 
-    # 3. Precision-Recall Curve Plot
     plt.figure(figsize=(6, 5))
     precision, recall, _ = precision_recall_curve(y_test, y_prob)
     plt.plot(recall, precision, color="blue", lw=2, label=f"PR curve (AUC = {auc_pr:.4f})")
@@ -134,7 +119,7 @@ def evaluate_model(test_features_path: str, artifacts_dir: str) -> None:
     plt.ylim([0.0, 1.05])
     plt.xlabel("Recall")
     plt.ylabel("Precision")
-    plt.title("Precision-Recall Curve")
+    plt.title("Precision-Recall Curve — Ensemble")
     plt.legend(loc="lower left")
     plt.tight_layout()
     pr_plot_path = os.path.join(plots_dir, "precision_recall_curve.png")
@@ -142,31 +127,11 @@ def evaluate_model(test_features_path: str, artifacts_dir: str) -> None:
     plt.close()
     logger.info(f"Saved Precision-Recall curve plot to: {pr_plot_path}")
 
-    # 4. SHAP Explanation Summary Plot
-    logger.info("Computing SHAP explainer values...")
-    # Extract base estimator from CalibratedClassifierCV if calibrated
-    if hasattr(model, "calibrated_classifiers_"):
-        shap_model = model.calibrated_classifiers_[0].estimator
-    else:
-        shap_model = model
-    explainer = shap.Explainer(shap_model)
-    shap_values = explainer(X_test_aligned)
-
-    plt.figure(figsize=(10, 6))
-    shap.summary_plot(shap_values, X_test_aligned, show=False)
-    plt.title("SHAP Feature Importance Summary", fontsize=12, pad=15)
-    plt.tight_layout()
-    shap_plot_path = os.path.join(plots_dir, "shap_summary.png")
-    plt.savefig(shap_plot_path)
-    plt.close()
-    logger.info(f"Saved SHAP summary plot to: {shap_plot_path}")
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s | %(levelname)s | %(message)s")
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     config_test_path = config_loader.training["data_paths"]["test_features"]
     config_artifacts_dir = config_loader.training["data_paths"]["artifacts_dir"]
     test_csv = config_test_path if os.path.isabs(config_test_path) else os.path.join(base_dir, config_test_path)

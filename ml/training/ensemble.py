@@ -24,15 +24,14 @@ if base_dir not in sys.path:
     sys.path.insert(0, base_dir)
 from configs.dataset_config import config_loader
 from ml.preprocessing.imbalance import resample_training_data
+from ml.training.natural_features import load_natural_train_matrix, pruned_feature_columns
+from ml.training.diagnostics_metadata import write_diagnostics_metadata, utc_timestamp
 
 logger = logging.getLogger("ml.training.ensemble")
 
 
 class CalibratedGBDTEnsemble(BaseEstimator, ClassifierMixin):
-    """
-    Soft-voting ensemble of XGBoost, LightGBM, Gradient Boosting, and Logistic Regression
-    featuring late ensemble calibration and fold-isolated SMOTE resampling.
-    """
+    """Soft-voting XGBoost, LightGBM, and Gradient Boosting with OOF calibration."""
     __module__ = "ml.training.ensemble"
 
     def __init__(self, seed: int = 42, decision_threshold: float = 0.15, calibration_method: str = "isotonic", reconstruct_clean: bool = True):
@@ -51,46 +50,9 @@ class CalibratedGBDTEnsemble(BaseEstimator, ClassifierMixin):
         
         self.classes_ = np.array([0, 1])
         
-        # 1. Reconstruct clean training features if requested (to prevent SMOTE leakage)
+        # Rebuild natural training matrix when requested (prevents SMOTE leakage)
         if self.reconstruct_clean:
-            clean_path = config_loader.training["data_paths"]["clean_data"]
-            clean_csv = clean_path if os.path.isabs(clean_path) else os.path.join(base_dir, clean_path)
-            
-            if not os.path.exists(clean_csv):
-                raise FileNotFoundError(f"Clean data CSV not found for natural reconstruction: {clean_csv}")
-                
-            clean_df = pd.read_csv(clean_csv)
-            target_col = config_loader.feature.get("target_column", "Churn")
-            
-            # Re-run train/test split to isolate natural training partition
-            from sklearn.model_selection import train_test_split
-            X_clean = clean_df.drop(columns=[target_col])
-            y_clean = clean_df[target_col]
-            
-            X_tr_raw, _, y_tr_natural, _ = train_test_split(
-                X_clean, y_clean,
-                test_size=0.20,
-                random_state=self.seed,
-                stratify=y_clean
-            )
-            
-            # Load preprocessor and apply feature engineering
-            pipeline_path = os.path.join(base_dir, config_loader.training["data_paths"]["artifacts_dir"], "pipeline.pkl")
-            if not os.path.exists(pipeline_path):
-                raise FileNotFoundError(f"Fitted pipeline preprocessor not found: {pipeline_path}")
-                
-            with open(pipeline_path, "rb") as f:
-                preprocessor = pickle.load(f)
-                
-            from ml.preprocessing.engineer import engineer_features
-            train_monthly_charges_median = float(X_tr_raw["MonthlyCharges"].median())
-            train_full = X_tr_raw.assign(**{target_col: y_tr_natural.values})
-            train_engineered = engineer_features(train_full, train_monthly_charges_median)
-            y_train_clean = train_engineered.pop(target_col)
-            
-            # Transform using preprocessor
-            feature_names = preprocessor.get_feature_names_out()
-            X_train_transformed = pd.DataFrame(preprocessor.transform(train_engineered), columns=feature_names)
+            X_train_transformed, y_train_clean = load_natural_train_matrix()
         else:
             X_train_transformed = X_train
             y_train_clean = y_train
@@ -118,7 +80,7 @@ class CalibratedGBDTEnsemble(BaseEstimator, ClassifierMixin):
         }
         
         pruned_cols = config_loader.model.get("pruned_columns", ["binary__has_support"])
-        features_all = [col for col in X_train_transformed.columns if col not in pruned_cols]
+        features_all = pruned_feature_columns(X_train_transformed.columns)
         
         # 5. Out-of-fold calibration on natural validation folds to prevent SMOTE leakage
         logger.info("Computing out-of-fold probabilities via fold-isolated SMOTE...")
@@ -285,7 +247,8 @@ def train_and_serialize_ensemble(train_path: str, test_path: str, models_dir: st
         auc = float("nan")
         
     logger.info(f"Ensemble Holdout Metrics (threshold={threshold:.2f}) -> Accuracy: {acc:.4f}, F1: {f1:.4f}, ROC-AUC: {auc:.4f}")
-    
+    evaluation_timestamp = utc_timestamp()
+
     # Serialization
     os.makedirs(models_dir, exist_ok=True)
     pkl_path = os.path.join(models_dir, "ensemble_model.pkl")
@@ -296,6 +259,30 @@ def train_and_serialize_ensemble(train_path: str, test_path: str, models_dir: st
     except Exception as e:
         logger.error(f"Failed to serialize ensemble model binary: {e}")
         raise e
+    artifact_timestamp = utc_timestamp()
+
+    artifacts_dir = os.path.dirname(models_dir)
+    metadata = {
+        "feature_names_in": features,
+        "hyperparameters": {"seed": seed, "decision_threshold": threshold},
+        "model_type": "CalibratedGBDTEnsemble",
+    }
+    metadata_path = os.path.join(artifacts_dir, "model_metadata.pkl")
+    with open(metadata_path, "wb") as f:
+        pickle.dump(metadata, f)
+    logger.info(f"Saved model metadata to: {metadata_path}")
+
+    diagnostics_path = write_diagnostics_metadata(
+        artifacts_dir,
+        ensemble_model_path=pkl_path,
+        holdout_accuracy=acc,
+        holdout_f1=f1,
+        holdout_roc_auc=auc,
+        decision_threshold=threshold,
+        artifact_timestamp=artifact_timestamp,
+        evaluation_timestamp=evaluation_timestamp,
+    )
+    logger.info(f"Wrote diagnostics metadata to: {diagnostics_path}")
 
 
 if __name__ == "__main__":
