@@ -1,19 +1,20 @@
+# Production: API inference, ML serving, and training scripts (Docker backend).
 fastapi==0.111.0
 uvicorn==0.30.1
 pydantic==2.7.4
 pydantic-settings==2.3.3
 sqlalchemy==2.0.30
 alembic==1.13.1
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.9
+python-jose[cryptography]==3.4.0
+bcrypt==4.2.1
+python-multipart==0.0.18
 pandas==2.2.2
 numpy==1.26.4
 scikit-learn==1.5.0
 xgboost==2.0.3
 pyyaml==6.0.1
-pytest==8.2.2
-httpx==0.27.0
 python-json-logger==4.1.0
 psycopg2-binary==2.9.12
-shap==0.45.1
+shap==0.45.1
+imbalanced-learn==0.12.4
+lightgbm==4.6.0

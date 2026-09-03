@@ -51,10 +51,10 @@ def test_database_flow_and_cascade(db_session):
         customer_id="TEST-CUSTOMER-123",
         gender="Male",
         senior_citizen=0,
-        partner=False,
-        dependents=True,
+        partner="No",
+        dependents="Yes",
         tenure=24,
-        phone_service=True,
+        phone_service="Yes",
         multiple_lines="No",
         internet_service="Fiber optic",
         online_security="Yes",
@@ -64,11 +64,11 @@ def test_database_flow_and_cascade(db_session):
         streaming_tv="No",
         streaming_movies="Yes",
         contract="One year",
-        paperless_billing=True,
+        paperless_billing="Yes",
         payment_method="Electronic check",
         monthly_charges=95.50,
         total_charges=2292.00,
-        churn=False,
+        churn="No",
         upload_id=upload.id
     )
     db_session.add(customer)
@@ -150,6 +150,40 @@ def test_upload_status_constraint(db_session):
         db_session.commit()
 
 
+def test_customer_charge_constraints(db_session):
+    upload = Upload(filename="charge_check.csv", status="completed", row_count=1)
+    db_session.add(upload)
+    db_session.commit()
+
+    customer = Customer(
+        customer_id="TEST-CUSTOMER-CHARGES",
+        gender="Male",
+        senior_citizen=0,
+        partner="No",
+        dependents="No",
+        tenure=1,
+        phone_service="Yes",
+        multiple_lines="No",
+        internet_service="DSL",
+        online_security="No",
+        online_backup="No",
+        device_protection="No",
+        tech_support="No",
+        streaming_tv="No",
+        streaming_movies="No",
+        contract="Month-to-month",
+        paperless_billing="No",
+        payment_method="Mailed check",
+        monthly_charges=-10.0,
+        total_charges=0.0,
+        churn=None,
+        upload_id=upload.id
+    )
+    db_session.add(customer)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
 def test_prediction_probability_constraints(db_session):
     upload = Upload(filename="probability_check.csv", status="completed", row_count=1)
     db_session.add(upload)
@@ -159,10 +193,10 @@ def test_prediction_probability_constraints(db_session):
         customer_id="TEST-CUSTOMER-XYZ",
         gender="Female",
         senior_citizen=0,
-        partner=True,
-        dependents=False,
+        partner="Yes",
+        dependents="No",
         tenure=12,
-        phone_service=True,
+        phone_service="Yes",
         multiple_lines="Yes",
         internet_service="DSL",
         online_security="No",
@@ -172,7 +206,7 @@ def test_prediction_probability_constraints(db_session):
         streaming_tv="Yes",
         streaming_movies="No",
         contract="Month-to-month",
-        paperless_billing=False,
+        paperless_billing="No",
         payment_method="Mailed check",
         monthly_charges=50.00,
         total_charges=600.00,
