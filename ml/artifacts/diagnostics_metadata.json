@@ -1,7 +1,13 @@
 {
-  "model_version": "CalibratedClassifierCV(XGBClassifier)_v1.0",
-  "artifact_timestamp": "2026-06-24T21:00:38Z",
-  "evaluation_timestamp": "2026-06-24T21:00:38Z",
-  "diagnostics_version": "v1.0.0",
-  "model_sha256": "27ae0a4d32254544ed8324abf88d785db12f5e4b880d3f3f92d58a2b0a9b94ff"
+  "model_version": "CalibratedGBDTEnsemble_v1.1",
+  "artifact_timestamp": "2026-09-03T14:52:56Z",
+  "evaluation_timestamp": "2026-09-03T14:52:56Z",
+  "diagnostics_version": "v1.1.0",
+  "model_sha256": "20d1ec9fb756fbf59c5baf9e04c63554ce5510cf5f6c7f5a1b63f515e183e9b1",
+  "decision_threshold": 0.15,
+  "holdout_metrics": {
+    "accuracy": 0.6757,
+    "f1": 0.5952,
+    "roc_auc": 0.8404
+  }
 }

@@ -1,0 +1,142 @@
+{
+  "baseline_source": "train_features_natural.csv",
+  "sample_size": 5134,
+  "max_samples": 500,
+  "top_features": [
+    {
+      "feature": "numeric__Contract",
+      "mean_abs_shap": 0.7278169393539429
+    },
+    {
+      "feature": "numeric__tenure",
+      "mean_abs_shap": 0.3692972660064697
+    },
+    {
+      "feature": "categorical__OnlineSecurity_No",
+      "mean_abs_shap": 0.23647479712963104
+    },
+    {
+      "feature": "categorical__TechSupport_No",
+      "mean_abs_shap": 0.21851244568824768
+    },
+    {
+      "feature": "categorical__InternetService_Fiber optic",
+      "mean_abs_shap": 0.19267825782299042
+    },
+    {
+      "feature": "binary__PaperlessBilling",
+      "mean_abs_shap": 0.1797846108675003
+    },
+    {
+      "feature": "categorical__PaymentMethod_Electronic check",
+      "mean_abs_shap": 0.1737460494041443
+    },
+    {
+      "feature": "ordinal__tenure_bucket",
+      "mean_abs_shap": 0.14390382170677185
+    },
+    {
+      "feature": "numeric__MonthlyCharges",
+      "mean_abs_shap": 0.1086689829826355
+    },
+    {
+      "feature": "binary__Dependents",
+      "mean_abs_shap": 0.08689343184232712
+    },
+    {
+      "feature": "categorical__StreamingMovies_Yes",
+      "mean_abs_shap": 0.07706169039011002
+    },
+    {
+      "feature": "binary__security_over_streaming",
+      "mean_abs_shap": 0.06994889676570892
+    },
+    {
+      "feature": "binary__Partner",
+      "mean_abs_shap": 0.06756272912025452
+    },
+    {
+      "feature": "numeric__commitment_score",
+      "mean_abs_shap": 0.0636206790804863
+    },
+    {
+      "feature": "categorical__MultipleLines_No",
+      "mean_abs_shap": 0.062447525560855865
+    },
+    {
+      "feature": "numeric__AvgMonthlyCharge",
+      "mean_abs_shap": 0.0608576275408268
+    },
+    {
+      "feature": "binary__SeniorCitizen",
+      "mean_abs_shap": 0.057179320603609085
+    },
+    {
+      "feature": "categorical__MultipleLines_Yes",
+      "mean_abs_shap": 0.055271368473768234
+    },
+    {
+      "feature": "binary__high_charge_early_stage_flag",
+      "mean_abs_shap": 0.047004472464323044
+    },
+    {
+      "feature": "categorical__OnlineBackup_No",
+      "mean_abs_shap": 0.04540792107582092
+    }
+  ],
+  "global_importance": {
+    "numeric__tenure": 0.3692972660064697,
+    "numeric__MonthlyCharges": 0.1086689829826355,
+    "numeric__addon_count": 0.014683561399579048,
+    "numeric__commitment_score": 0.0636206790804863,
+    "numeric__Contract": 0.7278169393539429,
+    "numeric__AvgMonthlyCharge": 0.0608576275408268,
+    "numeric__num_services": 0.006797976326197386,
+    "ordinal__tenure_bucket": 0.14390382170677185,
+    "categorical__gender_Female": 0.02712242119014263,
+    "categorical__gender_Male": 0.005357695743441582,
+    "categorical__MultipleLines_No": 0.062447525560855865,
+    "categorical__MultipleLines_No phone service": 0.006910392548888922,
+    "categorical__MultipleLines_Yes": 0.055271368473768234,
+    "categorical__InternetService_DSL": 0.034846656024456024,
+    "categorical__InternetService_Fiber optic": 0.19267825782299042,
+    "categorical__InternetService_No": 0.0010331409284844995,
+    "categorical__OnlineSecurity_No": 0.23647479712963104,
+    "categorical__OnlineSecurity_No internet service": 0.0,
+    "categorical__OnlineSecurity_Yes": 0.0060642496682703495,
+    "categorical__OnlineBackup_No": 0.04540792107582092,
+    "categorical__OnlineBackup_No internet service": 0.0,
+    "categorical__OnlineBackup_Yes": 0.005409914068877697,
+    "categorical__DeviceProtection_No": 0.023118995130062103,
+    "categorical__DeviceProtection_No internet service": 0.0,
+    "categorical__DeviceProtection_Yes": 0.027366124093532562,
+    "categorical__TechSupport_No": 0.21851244568824768,
+    "categorical__TechSupport_No internet service": 0.0,
+    "categorical__TechSupport_Yes": 0.0016882246127352118,
+    "categorical__StreamingTV_No": 0.016040191054344177,
+    "categorical__StreamingTV_No internet service": 0.0,
+    "categorical__StreamingTV_Yes": 0.04176682233810425,
+    "categorical__StreamingMovies_No": 0.007220533210784197,
+    "categorical__StreamingMovies_No internet service": 0.0,
+    "categorical__StreamingMovies_Yes": 0.07706169039011002,
+    "categorical__PaymentMethod_Bank transfer (automatic)": 0.01946636661887169,
+    "categorical__PaymentMethod_Credit card (automatic)": 0.02257411926984787,
+    "categorical__PaymentMethod_Electronic check": 0.1737460494041443,
+    "categorical__PaymentMethod_Mailed check": 0.027869580313563347,
+    "binary__SeniorCitizen": 0.057179320603609085,
+    "binary__Partner": 0.06756272912025452,
+    "binary__Dependents": 0.08689343184232712,
+    "binary__PhoneService": 0.0,
+    "binary__PaperlessBilling": 0.1797846108675003,
+    "binary__contract_is_mtm": 0.0,
+    "binary__is_early_stage": 0.0,
+    "binary__auto_pay_flag": 0.005635901354253292,
+    "binary__contract_early_stage_flag": 0.02429879643023014,
+    "binary__premium_risk_flag": 0.010657431557774544,
+    "binary__household_stability_flag": 0.0018652391154319048,
+    "binary__security_over_streaming": 0.06994889676570892,
+    "binary__fiber_zero_engagement_flag": 0.0,
+    "binary__high_charge_early_stage_flag": 0.047004472464323044,
+    "binary__vulnerable_customer_flag": 0.0008289098623208702
+  }
+}
