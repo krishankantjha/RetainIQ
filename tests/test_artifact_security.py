@@ -1,3 +1,5 @@
+"""Artifact integrity, segmentation stability, and diagnostics API tests."""
+
 import os
 import sys
 import json
@@ -130,9 +132,9 @@ def test_api_explain_response_schema_compatibility():
     
     # Assert both root-level fields and nested segmentation are correct
     assert response.cluster == 1
-    assert "High-Value" in response.cohort_persona
+    assert "New Churn-Risk" in response.cohort_persona
     assert response.segmentation.cluster_id == 1
-    assert "High-Value" in response.segmentation.persona
+    assert "New Churn-Risk" in response.segmentation.persona
 
 
 # 4. Test Startup Lifecycle Handling

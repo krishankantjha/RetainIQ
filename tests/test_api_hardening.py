@@ -1,7 +1,4 @@
-"""
-Unit and Integration Tests for Phase 7 (Final Production Upgrades):
-Rate limiting, database health verification, search autocompletion, and upload status endpoints.
-"""
+"""API hardening: rate limiting, health checks, upload status, and search."""
 
 import os
 import sys

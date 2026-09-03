@@ -1,6 +1,4 @@
-"""
-Unit and Integration Tests for Phase 5: Autoencoder Representation & Counterfactual Simulations.
-"""
+"""Autoencoder representation and counterfactual simulation tests."""
 
 import os
 import sys

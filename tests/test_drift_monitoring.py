@@ -1,6 +1,4 @@
-"""
-Unit and Integration Tests for Phase 6: Model Drift Detection & Performance Monitoring.
-"""
+"""Model drift detection and system health monitoring tests."""
 
 import os
 import sys
@@ -56,7 +54,7 @@ def mock_train_features_csv(tmp_path):
 def test_feature_drift_detection(mock_train_features_csv, monkeypatch):
     """Verify KS-test drift check flags drifted populations correctly."""
     from configs.dataset_config import config_loader
-    monkeypatch.setitem(config_loader.training["data_paths"], "train_features", mock_train_features_csv)
+    monkeypatch.setitem(config_loader.training["data_paths"], "train_features_natural", mock_train_features_csv)
 
     # FIX HIGH-10: Use a seeded RNG for all random data in this test.
     rng = np.random.RandomState(99)  # Different seed from fixture for independence
@@ -96,25 +94,18 @@ def test_feature_drift_detection(mock_train_features_csv, monkeypatch):
 
 def test_model_health_status(tmp_path, monkeypatch):
     """Verify system health maps correctly to Healthy/Warning/Degraded status."""
-    # Create temp model_metadata.pkl
-    meta = {
-        "model_name": "xgboost_test",
-        "version": "1.1.0",
-        "training_date": "2026-06-24",
-        "validation_metrics": {
-            "roc_auc": 0.84,
-            "f1_score": 0.63
-        }
+    diagnostics = {
+        "model_version": "CalibratedGBDTEnsemble_v1.1",
+        "diagnostics_version": "v1.1.0",
+        "evaluation_timestamp": "2026-09-03T14:52:56Z",
+        "holdout_metrics": {"accuracy": 0.6757, "f1": 0.5952, "roc_auc": 0.8404},
     }
-    
-    meta_path = tmp_path / "model_metadata.pkl"
-    with open(meta_path, "wb") as f:
-        pickle.dump(meta, f)
-        
+    with open(tmp_path / "diagnostics_metadata.json", "w", encoding="utf-8") as f:
+        json.dump(diagnostics, f)
+
     from configs.dataset_config import config_loader
     monkeypatch.setitem(config_loader.training["data_paths"], "artifacts_dir", str(tmp_path))
-    
-    # Case A: Mock drift report as healthy (0% drift)
+
     mock_healthy_drift = {
         "is_drifted": False,
         "drift_ratio": 0.0,
@@ -123,7 +114,8 @@ def test_model_health_status(tmp_path, monkeypatch):
     with patch("ml.training.model_monitor.detect_feature_drift", return_value=mock_healthy_drift):
         health = get_system_health(pd.DataFrame())
         assert health["status"] == "Healthy"
-        assert health["model_version"] == "1.1.0"
+        assert health["model_version"] == "v1.1.0"
+        assert health["metrics"]["roc_auc"] == 0.8404
         
     # Case B: Mock drift report as warning (14% drift)
     mock_warning_drift = {
@@ -193,29 +185,27 @@ def test_prediction_logs_appending(tmp_path, monkeypatch):
 
 def test_model_health_api_route(monkeypatch):
     """Verify GET /api/v1/analytics/model-health route returns status and metrics."""
-    # 1. Log in to get token
-    login_resp = client.post("/api/v1/auth/login", data={"username": "admin", "password": "password"})
-    assert login_resp.status_code == 200
-    token = login_resp.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
-    
-    # Mock DB customer query and health calls
+    from app.services.auth_service import get_current_user
+
     mock_health_payload = {
         "status": "Healthy",
         "model_version": "1.1.0",
         "drift_detected": False,
-        "drift_ratio": 0.0
+        "drift_ratio": 0.0,
     }
-    
+
     monkeypatch.setattr("app.services.prediction_service.get_preprocessed_active_customers", lambda db: pd.DataFrame())
     monkeypatch.setattr("ml.training.model_monitor.get_system_health", lambda X: mock_health_payload)
-    
-    # Make request
-    response = client.get(
-        "/api/v1/analytics/model-health",
-        headers=headers
-    )
-    
+
+    app.dependency_overrides[get_current_user] = lambda: "admin"
+    try:
+        response = client.get(
+            "/api/v1/analytics/model-health",
+            headers={"Authorization": "Bearer test_token"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "Healthy"

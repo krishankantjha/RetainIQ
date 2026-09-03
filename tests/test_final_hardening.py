@@ -9,6 +9,7 @@ Unit Tests for Final Production Hardening Tasks:
 
 import os
 import sys
+import json
 import pytest
 import numpy as np
 import pandas as pd
@@ -157,7 +158,7 @@ def test_mixed_features_drift_detection(tmp_path, monkeypatch):
     df_train.to_csv(train_csv, index=False)
     
     from configs.dataset_config import config_loader
-    monkeypatch.setitem(config_loader.training["data_paths"], "train_features", str(train_csv))
+    monkeypatch.setitem(config_loader.training["data_paths"], "train_features_natural", str(train_csv))
     
     # Stable inference dataframe
     df_inf_stable = pd.DataFrame({
@@ -208,6 +209,14 @@ def test_system_health_combined_bounds(tmp_path, monkeypatch):
     with open(meta_path, "wb") as f:
         import pickle
         pickle.dump(meta, f)
+
+    with open(tmp_path / "diagnostics_metadata.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "model_version": "CalibratedGBDTEnsemble_v1.1",
+            "diagnostics_version": "v1.1.0",
+            "evaluation_timestamp": "2026-06-24T00:00:00Z",
+            "holdout_metrics": {"roc_auc": 0.84, "f1": 0.63, "accuracy": 0.68},
+        }, f)
         
     from configs.dataset_config import config_loader
     monkeypatch.setitem(config_loader.training["data_paths"], "artifacts_dir", str(tmp_path))
