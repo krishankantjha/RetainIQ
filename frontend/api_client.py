@@ -107,12 +107,26 @@ class RetainIQAPIClient:
     def get_cohort_data(self):
         """Fetches detailed customer rows for demographic segmentation charts."""
         try:
-            response = requests.get(
-                f"{self.base_url}/api/v1/analytics/cohort-data",
-                headers=self.get_headers(),
-                timeout=15
-            )
-            return response.status_code, response.json()
+            all_items = []
+            page = 1
+            while True:
+                response = requests.get(
+                    f"{self.base_url}/api/v1/analytics/cohort-data",
+                    headers=self.get_headers(),
+                    params={"page": page, "page_size": 500},
+                    timeout=15
+                )
+                if response.status_code != 200:
+                    return response.status_code, all_items if all_items else []
+
+                data = response.json()
+                all_items.extend(data.get("items", []))
+                total_pages = data.get("total_pages", 1)
+                if page >= total_pages:
+                    break
+                page += 1
+
+            return 200, all_items
         except Exception:
             return 500, []
 
