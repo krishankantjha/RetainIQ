@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Token(BaseModel):
@@ -10,11 +10,6 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = Field(None, description="Username encoded in the JWT token subject")
-
-
-class UserLogin(BaseModel):
-    username: str = Field(..., description="Username used for authentication")
-    password: str = Field(..., description="Password used for authentication")
 
 
 class UserCreate(BaseModel):
@@ -31,9 +26,8 @@ class PasswordReset(BaseModel):
 
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     created_at: datetime
-
-    class Config:
-        from_attributes = True

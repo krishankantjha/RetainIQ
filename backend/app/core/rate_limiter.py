@@ -1,6 +1,9 @@
-import time
-import threading
+import hashlib
 import logging
+import sys
+import threading
+import time
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -15,14 +18,12 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
     Thread-safe, in-memory sliding-window rate limiting middleware.
 
     Restricts request frequency on ingestion, prediction, and authentication
-    endpoints per JWT client token or client IP address.
+    endpoints per client IP or hashed JWT session identity.
 
-    Two limits apply:
-      - ``limit``      (default 60/min) for upload and explain paths.
-      - ``auth_limit`` (default 10/min) for the login endpoint — prevents
-        credential brute-force attacks.
-
-    Stale keys are evicted lazily to prevent unbounded memory growth.
+    Limits:
+      - ``limit``           (default 60/min) for upload and explain paths.
+      - ``auth_limit``      (default 10/min) for login.
+      - ``recovery_limit``  (default 5/min) for register, reset, security-question.
     """
 
     def __init__(
@@ -31,56 +32,44 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         limit: int = 60,
         window_seconds: int = 60,
         auth_limit: int = 10,
+        recovery_limit: int = 5,
     ):
         super().__init__(app)
         self.limit = limit
         self.auth_limit = auth_limit
+        self.recovery_limit = recovery_limit
         self.window_seconds = window_seconds
         self.requests: dict = {}
         self.lock = threading.Lock()
-        self._request_counter = 0          # Used to trigger periodic eviction sweeps
+        self._request_counter = 0
+        self._api_prefix = settings.API_V1_STR.rstrip("/")
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+    def _auth_path(self, suffix: str) -> str:
+        return f"{self._api_prefix}/auth{suffix}"
 
-    def _get_client_key(self, request: Request) -> str:
-        """
-        Resolve the rate-limit identity key.
-        Prefer the raw JWT bearer token so each session is tracked
-        independently; fall back to client IP.
-        """
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                token = auth_header.split(" ", 1)[1]
-                if token:
-                    return token
-            except IndexError:
-                pass
+    def _get_client_key(self, request: Request, *, ip_only: bool = False) -> str:
+        if not ip_only:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                try:
+                    token = auth_header.split(" ", 1)[1]
+                    if token:
+                        return hashlib.sha256(token.encode()).hexdigest()
+                except IndexError:
+                    pass
         client = request.client
         return client.host if client else "unknown"
 
     def _evict_stale_keys(self, now: float) -> None:
-        """
-        Remove keys whose entire history has expired outside the window.
-        Called periodically (every 500 requests) to bound memory usage.
-        """
-        stale = [k for k, ts_list in self.requests.items()
-                 if not any(now - t < self.window_seconds for t in ts_list)]
+        stale = [
+            k for k, ts_list in self.requests.items()
+            if not any(now - t < self.window_seconds for t in ts_list)
+        ]
         for k in stale:
             del self.requests[k]
-        if stale:
-            logger.debug(f"Rate limiter evicted {len(stale)} stale client key(s).")
 
     def _is_rate_limited(self, client_key: str, now: float, effective_limit: int) -> bool:
-        """
-        Sliding-window check. Returns True if the client exceeds the limit.
-        Evicts the current key's stale timestamps regardless of whether a
-        periodic sweep is due.
-        """
         history = self.requests.get(client_key, [])
-        # Evict timestamps outside the active window
         history = [t for t in history if now - t < self.window_seconds]
 
         if len(history) >= effective_limit:
@@ -90,30 +79,33 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         self.requests[client_key] = history
         return False
 
-    # ------------------------------------------------------------------
-    # Middleware dispatch
-    # ------------------------------------------------------------------
-
     async def dispatch(self, request: Request, call_next):
-        import sys
         path = request.url.path
 
-        # Determine which paths to protect and which limit applies
         is_upload_or_explain = (
-            path.startswith("/api/v1/upload") or "/explain" in path
+            path.startswith(f"{self._api_prefix}/upload") or "/explain" in path
         )
-        is_auth = path == "/api/v1/auth/login"
+        is_login = path == self._auth_path("/login")
+        is_auth_recovery = (
+            path == self._auth_path("/register")
+            or path == self._auth_path("/reset-password")
+            or path.startswith(self._auth_path("/security-question/"))
+        )
 
-        # Bypass rate limiting when running test suites under pytest,
-        # but allow it for the middleware tests running on dummy apps.
+        should_limit = is_upload_or_explain or is_login or is_auth_recovery
         is_main_app = getattr(request.app, "title", "") == settings.APP_NAME
-        if (is_upload_or_explain or is_auth) and ("pytest" not in sys.modules or not is_main_app):
-            client_key = self._get_client_key(request)
-            effective_limit = self.auth_limit if is_auth else self.limit
+        if should_limit and ("pytest" not in sys.modules or not is_main_app):
+            ip_only = is_login or is_auth_recovery
+            client_key = self._get_client_key(request, ip_only=ip_only)
+            if is_login:
+                effective_limit = self.auth_limit
+            elif is_auth_recovery:
+                effective_limit = self.recovery_limit
+            else:
+                effective_limit = self.limit
             now = time.time()
 
             with self.lock:
-                # Periodic stale-key eviction to bound memory growth (every 500 requests)
                 self._request_counter += 1
                 if self._request_counter % 500 == 0:
                     self._evict_stale_keys(now)

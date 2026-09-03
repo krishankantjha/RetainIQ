@@ -22,18 +22,45 @@ from configs.dataset_config import config_loader
 from ml.preprocessing.validator import DataValidator
 from app.core.security import verify_file_hash, ArtifactValidationError
 from app.services.ingestion import clean_uploaded_data, log_prediction_events
+from app.services.customer_mapper import customer_to_ml_record, customers_from_upload_dataframe
 
 logger = logging.getLogger("backend.app.services.prediction_service")
+
+REQUIRED_SKLEARN_MAJOR_MINOR = (1, 5)
+
+
+def _verify_sklearn_version() -> None:
+    """Reject incompatible scikit-learn versions before unpickling trained artifacts."""
+    import sklearn
+
+    installed = sklearn.__version__.split(".")
+    try:
+        installed_mm = (int(installed[0]), int(installed[1]))
+    except (IndexError, ValueError) as exc:
+        raise ArtifactValidationError(
+            f"Unable to parse installed scikit-learn version: {sklearn.__version__}"
+        ) from exc
+
+    if installed_mm != REQUIRED_SKLEARN_MAJOR_MINOR:
+        raise ArtifactValidationError(
+            f"Incompatible scikit-learn version {sklearn.__version__}. "
+            f"Artifacts require scikit-learn {REQUIRED_SKLEARN_MAJOR_MINOR[0]}.{REQUIRED_SKLEARN_MAJOR_MINOR[1]}.x. "
+            "Install backend/requirements.txt or retrain artifacts with the current sklearn version."
+        )
+
 
 # Resolve absolute artifact paths from config loader
 artifacts_dir_relative = config_loader.training["data_paths"].get("artifacts_dir", "ml/artifacts")
 artifacts_dir = os.path.join(PROJECT_ROOT, artifacts_dir_relative)
+models_dir = os.path.join(artifacts_dir, "models")
 
-MODEL_PATH = os.path.join(artifacts_dir, "model.pkl")
+ENSEMBLE_MODEL_PATH = os.path.join(models_dir, "ensemble_model.pkl")
 PIPELINE_PATH = os.path.join(artifacts_dir, "pipeline.pkl")
 ENCODERS_PATH = os.path.join(artifacts_dir, "encoders.pkl")
 METADATA_PATH = os.path.join(artifacts_dir, "model_metadata.pkl")
 MANIFEST_PATH = os.path.join(artifacts_dir, "artifacts_manifest.json")
+KMEANS_PATH = os.path.join(models_dir, "kmeans_model.pkl")
+AUTOENCODER_PATH = os.path.join(models_dir, "autoencoder_model.pkl")
 
 
 # Global variables to cache loaded models
@@ -47,6 +74,15 @@ _autoencoder = None
 
 # Thread lock to guarantee safe lazy loading of ML artifacts in multi-threaded runtime
 _lock = threading.Lock()
+
+
+def _resolve_shap_estimator(model: Any) -> Any:
+    """Tree estimator used for SHAP (ensemble delegates to its XGB component)."""
+    if hasattr(model, "calibrated_classifiers_"):
+        return model.calibrated_classifiers_[0].estimator
+    if hasattr(model, "xgb_"):
+        return model.xgb_
+    return model
 
 
 def load_artifacts() -> Tuple[Any, Any, Dict[str, Any], Dict[str, Any], Any, Any]:
@@ -66,52 +102,40 @@ def load_artifacts() -> Tuple[Any, Any, Dict[str, Any], Dict[str, Any], Any, Any
             return _model, _preprocessor, _encoders_meta, _model_metadata, _explainer, _kmeans_model
             
         logger.info("Loading model and pipeline artifacts from disk (thread-safe lock acquired)...")
-        
-        kmeans_path = os.path.join(artifacts_dir, "models", "kmeans_model.pkl")
-        ae_path = os.path.join(artifacts_dir, "models", "autoencoder_model.pkl")
-        
-        # Verify hashes against manifest
+        _verify_sklearn_version()
+
         if not os.path.exists(MANIFEST_PATH):
-            logger.error(f"Artifacts manifest not found: {MANIFEST_PATH}")
             raise ArtifactValidationError(f"Artifacts manifest not found at {MANIFEST_PATH}")
-            
+
         import json
         try:
-            with open(MANIFEST_PATH, "r") as f:
+            with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
         except Exception as e:
-            logger.error(f"Failed to parse manifest at {MANIFEST_PATH}: {e}")
-            raise ArtifactValidationError(f"Corrupt artifacts manifest: {e}")
-            
+            raise ArtifactValidationError(f"Corrupt artifacts manifest: {e}") from e
+
+        required_files = {
+            "ensemble_model.pkl": ENSEMBLE_MODEL_PATH,
+            "pipeline.pkl": PIPELINE_PATH,
+            "encoders.pkl": ENCODERS_PATH,
+            "model_metadata.pkl": METADATA_PATH,
+            "kmeans_model.pkl": KMEANS_PATH,
+            "autoencoder_model.pkl": AUTOENCODER_PATH,
+        }
         try:
-            verify_file_hash(MODEL_PATH, manifest.get("model.pkl", ""))
-            verify_file_hash(PIPELINE_PATH, manifest.get("pipeline.pkl", ""))
-            verify_file_hash(ENCODERS_PATH, manifest.get("encoders.pkl", ""))
-            verify_file_hash(METADATA_PATH, manifest.get("model_metadata.pkl", ""))
-            verify_file_hash(kmeans_path, manifest.get("kmeans_model.pkl", ""))
-            verify_file_hash(ae_path, manifest.get("autoencoder_model.pkl", ""))
+            for manifest_key, filepath in required_files.items():
+                verify_file_hash(filepath, manifest.get(manifest_key, ""))
         except Exception as e:
-            logger.error(f"Artifact integrity verification failed: {e}")
-            raise ArtifactValidationError(f"Artifact verification failed: {e}")
-            
-        # File exist checks (already implicitly verified by verify_file_hash, but we keep explicit check for clear errors)
-        if not os.path.exists(MODEL_PATH):
-            raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
-        if not os.path.exists(PIPELINE_PATH):
-            raise FileNotFoundError(f"Pipeline file not found at {PIPELINE_PATH}")
-        if not os.path.exists(ENCODERS_PATH):
-            raise FileNotFoundError(f"Encoders file not found at {ENCODERS_PATH}")
-        if not os.path.exists(METADATA_PATH):
-            raise FileNotFoundError(f"Model metadata file not found at {METADATA_PATH}")
-        if not os.path.exists(kmeans_path):
-            raise FileNotFoundError(f"K-Means model file not found at {kmeans_path}")
-        if not os.path.exists(ae_path):
-            raise FileNotFoundError(f"Autoencoder model file not found at {ae_path}")
-            
-        # Import wrapper dynamically to ensure correct unpickling scope
+            raise ArtifactValidationError(f"Artifact verification failed: {e}") from e
+
+        for filepath in required_files.values():
+            if not os.path.exists(filepath):
+                raise FileNotFoundError(f"Artifact file not found at {filepath}")
+
         from ml.segmentation.autoencoder import AutoencoderWrapper
-        
-        with open(MODEL_PATH, "rb") as f:
+        import ml.training.ensemble  # noqa: F401 — required for ensemble unpickling
+
+        with open(ENSEMBLE_MODEL_PATH, "rb") as f:
             _model = pickle.load(f)
         with open(PIPELINE_PATH, "rb") as f:
             _preprocessor = pickle.load(f)
@@ -119,19 +143,12 @@ def load_artifacts() -> Tuple[Any, Any, Dict[str, Any], Dict[str, Any], Any, Any
             _encoders_meta = pickle.load(f)
         with open(METADATA_PATH, "rb") as f:
             _model_metadata = pickle.load(f)
-        with open(kmeans_path, "rb") as f:
+        with open(KMEANS_PATH, "rb") as f:
             _kmeans_model = pickle.load(f)
-        with open(ae_path, "rb") as f:
+        with open(AUTOENCODER_PATH, "rb") as f:
             _autoencoder = pickle.load(f)
-            
-        # Cache the SHAP Explainer once during startup to eliminate per-batch initialization costs
-        if hasattr(_model, "calibrated_classifiers_"):
-            shap_model = _model.calibrated_classifiers_[0].estimator
-        elif hasattr(_model, "xgb_"):
-            shap_model = _model.xgb_
-        else:
-            shap_model = _model
-        _explainer = shap.Explainer(shap_model)
+
+        _explainer = shap.Explainer(_resolve_shap_estimator(_model))
             
         logger.info("Artifacts successfully loaded and explainer cached.")
         return _model, _preprocessor, _encoders_meta, _model_metadata, _explainer, _kmeans_model
@@ -211,8 +228,7 @@ def batch_predict_and_explain(df: pd.DataFrame, db: Session, upload_id: int, thr
         X_continuous = X_df[actual_cont_cols] if actual_cont_cols else X_df
         cluster_labels = kmeans_obj.predict(X_continuous)
     
-    # Instantiate LocalExplainer — pass preprocessor/encoders/metadata to eliminate
-    # the circular ML→backend dependency (FIX CRITICAL-3).
+    # Instantiate LocalExplainer for save-play logic and SHAP fallbacks.
     from ml.explainability.shap_local import LocalExplainer
     local_explainer = LocalExplainer(
         model_obj,
@@ -223,43 +239,12 @@ def batch_predict_and_explain(df: pd.DataFrame, db: Session, upload_id: int, thr
         metadata=metadata,
     )
 
-    customers_to_insert = []
-    for index, row in df_clean.iterrows():
-        cust = Customer(
-            customer_id=str(row["customerID"]),
-            gender=str(row["gender"]),
-            senior_citizen=int(row["SeniorCitizen"]),
-            partner=str(row["Partner"]),
-            dependents=str(row["Dependents"]),
-            tenure=int(row["tenure"]),
-            phone_service=str(row["PhoneService"]),
-            multiple_lines=str(row["MultipleLines"]),
-            internet_service=str(row["InternetService"]),
-            online_security=str(row["OnlineSecurity"]),
-            online_backup=str(row["OnlineBackup"]),
-            device_protection=str(row["DeviceProtection"]),
-            tech_support=str(row["TechSupport"]),
-            streaming_tv=str(row["StreamingTV"]),
-            streaming_movies=str(row["StreamingMovies"]),
-            contract=str(row["Contract"]),
-            paperless_billing=str(row["PaperlessBilling"]),
-            payment_method=str(row["PaymentMethod"]),
-            monthly_charges=float(row["MonthlyCharges"]),
-            total_charges=float(row["TotalCharges"]),
-            churn=original_churns[index],
-            upload_id=upload_id
-        )
-        customers_to_insert.append(cust)
+    customers_to_insert = customers_from_upload_dataframe(df_clean, original_churns, upload_id)
 
     # Bulk insert customers using add_all
     db.add_all(customers_to_insert)
     db.flush()
 
-    # ----------------------------------------------------------------
-    # FIX HIGH-3: Compute SHAP values for the ENTIRE batch in one call.
-    # Previously called explainer per-row inside the loop — O(n) SHAP
-    # instantiations.  One batch call is 20-50x faster for large uploads.
-    # ----------------------------------------------------------------
     logger.info(f"Computing SHAP values for batch of {len(customers_to_insert)} customers...")
     try:
         batch_shap_values = explainer_obj(X_aligned)   # shape: (n_rows, n_features)
@@ -268,21 +253,26 @@ def batch_predict_and_explain(df: pd.DataFrame, db: Session, upload_id: int, thr
         logger.warning(f"Batch SHAP computation failed ({shap_err}); falling back to per-row mode.")
         batch_shap_array = None
 
+    raw_feature_cols = [col for col in df_clean.columns if col not in X_aligned.columns]
+    if raw_feature_cols:
+        combined_features = pd.concat(
+            [X_aligned.reset_index(drop=True), df_clean[raw_feature_cols].reset_index(drop=True)],
+            axis=1,
+        )
+    else:
+        combined_features = X_aligned.reset_index(drop=True)
+
     predictions_to_insert = []
     for i, cust in enumerate(customers_to_insert):
-        # Combine raw clean fields with model input fields to support value-aware Save Play checks
-        customer_combined = X_aligned.iloc[[i]].copy()
-        for col in df_clean.columns:
-            if col not in customer_combined.columns:
-                customer_combined[col] = df_clean.iloc[i][col]
+        customer_row = combined_features.iloc[i]
 
         # Use pre-computed batch SHAP row where available; fall back to single-call
         if batch_shap_array is not None:
             explanation = local_explainer.explain_from_shap_values(
-                batch_shap_array[i], customer_combined.iloc[0]
+                batch_shap_array[i], customer_row
             )
         else:
-            explanation = local_explainer.explain_customer(customer_combined)
+            explanation = local_explainer.explain_customer(combined_features.iloc[[i]])
 
         # Format Save Plays to match prediction DB schema
         db_save_plays = []
@@ -314,48 +304,16 @@ def batch_predict_and_explain(df: pd.DataFrame, db: Session, upload_id: int, thr
 
 
 def get_preprocessed_active_customers(db: Session) -> pd.DataFrame:
-    """
-    Fetches a representative sample of active customers from the database, runs
-    feature engineering and preprocessing, and returns the preprocessed DataFrame
-    for use in drift detection.
-
-    FIX MEDIUM-5: Query is capped at 1,000 rows.  Fetching ALL customers on every
-    health-check poll would load the entire DB table into memory and create
-    sustained read pressure under continuous monitoring.
-    """
+    """Return a capped, preprocessed feature matrix for drift monitoring."""
     _, preprocessor_obj, encoders, _, _, _ = load_artifacts()
 
-    # Sample at most 1,000 customers to bound memory and DB read cost
+    # Cap sample size for health-check polling.
     customers = db.query(Customer).limit(1000).all()
     if not customers:
         return pd.DataFrame(columns=encoders["feature_names_out"])
         
     # Map model attributes back to dict for clean dataframe reconstruction
-    data_list = []
-    for c in customers:
-        data_list.append({
-            "customerID": c.customer_id,
-            "gender": c.gender,
-            "SeniorCitizen": c.senior_citizen,
-            "Partner": c.partner,
-            "Dependents": c.dependents,
-            "tenure": c.tenure,
-            "PhoneService": c.phone_service,
-            "MultipleLines": c.multiple_lines,
-            "InternetService": c.internet_service,
-            "OnlineSecurity": c.online_security,
-            "OnlineBackup": c.online_backup,
-            "DeviceProtection": c.device_protection,
-            "TechSupport": c.tech_support,
-            "StreamingTV": c.streaming_tv,
-            "StreamingMovies": c.streaming_movies,
-            "Contract": c.contract,
-            "PaperlessBilling": c.paperless_billing,
-            "PaymentMethod": c.payment_method,
-            "MonthlyCharges": c.monthly_charges,
-            "TotalCharges": c.total_charges or 0.0,
-            "Churn": c.churn
-        })
+    data_list = [customer_to_ml_record(c) for c in customers]
         
     df_clean = pd.DataFrame(data_list)
     df_engineered = engineer_features(df_clean, encoders["train_monthly_charges_median"])

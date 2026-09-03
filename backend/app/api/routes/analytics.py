@@ -1,5 +1,5 @@
 from collections import defaultdict
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -7,6 +7,7 @@ from app.database.session import get_db
 from app.database.models.customer import Customer
 from app.database.models.prediction import Prediction
 from app.services.auth_service import get_current_user
+from configs.dataset_config import config_loader
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -33,21 +34,21 @@ def get_analytics_overview(
         }
         
     avg_probability = db.query(func.avg(Prediction.churn_probability)).scalar() or 0.0
-    
-    # Total monthly charges at risk (is_high_risk predictions)
+
     total_value_at_risk = db.query(func.sum(Customer.monthly_charges))\
         .join(Prediction, Customer.id == Prediction.customer_id)\
         .filter(Prediction.is_high_risk == True)\
         .scalar() or 0.0
-        
-    # High Risk: probability >= 0.50
-    # Medium Risk: 0.25 <= probability < 0.50
-    # Low Risk: probability < 0.25
-    high_count = db.query(func.count(Prediction.id)).filter(Prediction.churn_probability >= 0.5).scalar() or 0
+
+    model_cfg = config_loader.model
+    medium_min = float(model_cfg.get("risk_display_bands", {}).get("medium_min", 0.25))
+
+    high_count = db.query(func.count(Prediction.id)).filter(Prediction.is_high_risk == True).scalar() or 0
     medium_count = db.query(func.count(Prediction.id))\
-        .filter(Prediction.churn_probability >= 0.25)\
-        .filter(Prediction.churn_probability < 0.5).scalar() or 0
-    low_count = db.query(func.count(Prediction.id)).filter(Prediction.churn_probability < 0.25).scalar() or 0
+        .filter(Prediction.is_high_risk == False)\
+        .filter(Prediction.churn_probability >= medium_min).scalar() or 0
+    low_count = db.query(func.count(Prediction.id))\
+        .filter(Prediction.churn_probability < medium_min).scalar() or 0
     
     return {
         "total_customers": total_customers,
@@ -67,7 +68,7 @@ def get_save_plays_analytics(
     current_user: str = Depends(get_current_user)
 ):
     """
-    Retrieve aggregates ofrecommended Save Play campaigns.
+    Retrieve aggregates of recommended Save Play campaigns.
     """
     predictions = db.query(Prediction.save_plays).all()
     
@@ -101,13 +102,15 @@ def get_save_plays_analytics(
 
 @router.get("/cohort-data")
 def get_cohort_data(
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(500, ge=1, le=1000, description="Rows per page (max 1000)"),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """
-    Retrieve all customer demographic, contract, and churn prediction details for cohort analysis.
+    Retrieve paginated customer demographic, contract, and churn prediction details for cohort analysis.
     """
-    results = db.query(
+    base_query = db.query(
         Customer.customer_id,
         Customer.gender,
         Customer.tenure,
@@ -120,25 +123,43 @@ def get_cohort_data(
         Prediction.is_high_risk,
         Prediction.cluster,
         Prediction.predicted_at
-    ).join(Prediction, Customer.id == Prediction.customer_id).all()
+    ).join(Prediction, Customer.id == Prediction.customer_id)
 
-    return [
-        {
-            "customer_id": r.customer_id,
-            "gender": r.gender,
-            "tenure": r.tenure,
-            "contract": r.contract,
-            "internet_service": r.internet_service,
-            "monthly_charges": r.monthly_charges,
-            "total_charges": r.total_charges,
-            "churn": r.churn,
-            "churn_probability": r.churn_probability,
-            "is_high_risk": r.is_high_risk,
-            "cluster": r.cluster,
-            "predicted_at": r.predicted_at.isoformat() if r.predicted_at else None
-        }
-        for r in results
-    ]
+    total = base_query.count()
+    offset = (page - 1) * page_size
+    results = (
+        base_query
+        .order_by(Customer.customer_id)
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    total_pages = (total + page_size - 1) // page_size if total else 0
+
+    return {
+        "items": [
+            {
+                "customer_id": r.customer_id,
+                "gender": r.gender,
+                "tenure": r.tenure,
+                "contract": r.contract,
+                "internet_service": r.internet_service,
+                "monthly_charges": r.monthly_charges,
+                "total_charges": r.total_charges,
+                "churn": r.churn,
+                "churn_probability": r.churn_probability,
+                "is_high_risk": r.is_high_risk,
+                "cluster": r.cluster,
+                "predicted_at": r.predicted_at.isoformat() if r.predicted_at else None
+            }
+            for r in results
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @router.get("/diagnostics-metadata")
@@ -155,7 +176,7 @@ def get_diagnostics_metadata(
     # Resolve absolute path to diagnostics_metadata.json relative to backend project root
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
     metadata_path = os.path.join(PROJECT_ROOT, "ml", "artifacts", "diagnostics_metadata.json")
-    model_path = os.path.join(PROJECT_ROOT, "ml", "artifacts", "model.pkl")
+    model_path = os.path.join(PROJECT_ROOT, "ml", "artifacts", "models", "ensemble_model.pkl")
     
     # Compute active model's SHA-256
     model_sha256 = ""

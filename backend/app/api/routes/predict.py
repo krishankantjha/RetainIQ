@@ -5,11 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.core.config import settings
 from app.database.models.uploads import Upload
 from app.database.models.customer import Customer
 from app.services.auth_service import get_current_user
 from app.services.prediction_service import batch_predict_and_explain
-from app.schemas.prediction import CustomerExplainResponse
+from app.services.customer_mapper import customer_to_ml_record
+from app.constants.cohort_personas import get_cohort_persona_name
+from app.schemas.prediction import CustomerExplainResponse, SimulateRequest
 
 logger = logging.getLogger("backend.app.api.routes.predict")
 
@@ -92,7 +95,13 @@ async def upload_csv(
         
     try:
         file_bytes = await file.read()
-        
+        max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+        if len(file_bytes) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File exceeds maximum upload size of {settings.MAX_UPLOAD_SIZE_MB} MB."
+            )
+
         # Initialize upload record in database
         upload = Upload(
             filename=file.filename,
@@ -111,23 +120,15 @@ async def upload_csv(
             "status": upload.status,
             "message": "File upload accepted. Processing in progress."
         }
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         logger.exception(f"File upload initialization failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to initialize file upload: {str(e)}"
+            detail="Failed to initialize file upload."
         )
-
-
-def get_cohort_persona_name(cluster_id: int) -> str:
-    if cluster_id == 0:
-        return "Cluster 0: Moderate-Value, Budget-Conscious Users"
-    elif cluster_id == 1:
-        return "Cluster 1: High-Value Premium Cohort"
-    elif cluster_id == 2:
-        return "Cluster 2: New Churn-Risk Users"
-    return "N/A"
 
 
 @router.get("/customers/{customer_id}/explain", response_model=CustomerExplainResponse)
@@ -152,13 +153,14 @@ def get_customer_explain(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No churn prediction found for customer {customer_id}."
         )
-        
-    persona_name = get_cohort_persona_name(prediction.cluster) if prediction.cluster is not None else None
-    
-    # Run counterfactual simulations dynamically using LocalExplainer
+
+    persona_name = get_cohort_persona_name(prediction.cluster)
+
     from app.services.prediction_service import load_artifacts
     from ml.explainability.shap_local import LocalExplainer
-    
+
+    customer_dict = None
+    simulations = []
     try:
         model_obj, preprocessor_obj, encoders_meta, metadata, explainer_obj, _ = load_artifacts()
         local_explainer = LocalExplainer(
@@ -169,35 +171,12 @@ def get_customer_explain(
             encoders=encoders_meta,
             metadata=metadata,
         )
-        
-        customer_dict = {
-            "customerID": customer.customer_id,
-            "gender": customer.gender,
-            "SeniorCitizen": customer.senior_citizen,
-            "Partner": customer.partner,
-            "Dependents": customer.dependents,
-            "tenure": customer.tenure,
-            "PhoneService": customer.phone_service,
-            "MultipleLines": customer.multiple_lines,
-            "InternetService": customer.internet_service,
-            "OnlineSecurity": customer.online_security,
-            "OnlineBackup": customer.online_backup,
-            "DeviceProtection": customer.device_protection,
-            "TechSupport": customer.tech_support,
-            "StreamingTV": customer.streaming_tv,
-            "StreamingMovies": customer.streaming_movies,
-            "Contract": customer.contract,
-            "PaperlessBilling": customer.paperless_billing,
-            "PaymentMethod": customer.payment_method,
-            "MonthlyCharges": customer.monthly_charges,
-            "TotalCharges": customer.total_charges or 0.0,
-            "Churn": customer.churn
-        }
+
+        customer_dict = customer_to_ml_record(customer)
         customer_df = pd.DataFrame([customer_dict])
         simulations = local_explainer.run_simulations(customer_df)
     except Exception as e:
         logger.error(f"Failed to generate counterfactual simulations for customer {customer_id}: {e}", exc_info=True)
-        simulations = []
 
     return CustomerExplainResponse(
         customer_id=customer.customer_id,
@@ -216,14 +195,14 @@ def get_customer_explain(
             "persona": persona_name
         } if prediction.cluster is not None else None,
         simulations=simulations,
-        customer_features=customer_dict if 'customer_dict' in locals() else None,
+        customer_features=customer_dict,
         predicted_at=prediction.predicted_at
     )
 
 
 @router.post("/predict/simulate")
 def simulate_prediction(
-    request: dict,
+    request: SimulateRequest,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
@@ -244,31 +223,7 @@ def simulate_prediction(
             metadata=metadata,
         )
 
-        customer_dict = {
-            "customerID": request.get("customerID") or request.get("customer_id") or "SIM",
-            "gender": request.get("gender") or "Male",
-            "SeniorCitizen": int(request.get("SeniorCitizen") or request.get("senior_citizen") or 0),
-            "Partner": request.get("Partner") or request.get("partner") or "No",
-            "Dependents": request.get("Dependents") or request.get("dependents") or "No",
-            "tenure": int(request.get("tenure") or 0),
-            "PhoneService": request.get("PhoneService") or request.get("phone_service") or "Yes",
-            "MultipleLines": request.get("MultipleLines") or request.get("multiple_lines") or "No",
-            "InternetService": request.get("InternetService") or request.get("internet_service") or "No",
-            "OnlineSecurity": request.get("OnlineSecurity") or request.get("online_security") or "No",
-            "OnlineBackup": request.get("OnlineBackup") or request.get("online_backup") or "No",
-            "DeviceProtection": request.get("DeviceProtection") or request.get("device_protection") or "No",
-            "TechSupport": request.get("TechSupport") or request.get("tech_support") or "No",
-            "StreamingTV": request.get("StreamingTV") or request.get("streaming_tv") or "No",
-            "StreamingMovies": request.get("StreamingMovies") or request.get("streaming_movies") or "No",
-            "Contract": request.get("Contract") or request.get("contract") or "Month-to-month",
-            "PaperlessBilling": request.get("PaperlessBilling") or request.get("paperless_billing") or "No",
-            "PaymentMethod": request.get("PaymentMethod") or request.get("payment_method") or "Mailed check",
-            "MonthlyCharges": float(request.get("MonthlyCharges") or request.get("monthly_charges") or 0.0),
-            "TotalCharges": float(request.get("TotalCharges") or request.get("total_charges") or 0.0),
-            "Churn": request.get("Churn") or request.get("churn") or "No"
-        }
-
-        customer_df = pd.DataFrame([customer_dict])
+        customer_df = pd.DataFrame([request.to_ml_record()])
         sim_prob = local_explainer.simulate_intervention(customer_df, {})
         return {"simulated_probability": sim_prob}
     except Exception as e:

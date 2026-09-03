@@ -18,16 +18,20 @@ class Settings(BaseSettings):
     # Core API Configurations
     APP_NAME: str = "AI Customer Retention Platform API"
     APP_ENV: str = "development"
-    DEBUG: bool = True
-    API_V1_STR: str = "/api"
+    API_V1_STR: str = "/api/v1"
 
     # Security & Authentication
-    JWT_SECRET: str = "super-secret-key-change-in-production-1234567890"
+    JWT_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     ADMIN_USERNAME: str = "admin"
-    # Default bcrypt hash for "password"
-    ADMIN_PASSWORD_HASH: str = "$2b$12$w5uwmvOZ7LEYex5dC7L3/uzqj0jXnSsOJuwwj3zAXWDjE5jRi8LUG"
+    ADMIN_PASSWORD_HASH: str = ""
+
+    # Registration is disabled by default; enable explicitly for dev/demo environments.
+    ALLOW_USER_REGISTRATION: bool = False
+
+    # Maximum CSV upload size in megabytes.
+    MAX_UPLOAD_SIZE_MB: int = 25
 
     # Database Persistence
     DATABASE_URL: str = "sqlite:///./customer_retention.db"
@@ -35,11 +39,22 @@ class Settings(BaseSettings):
     # CORS Allowed Origins
     ALLOWED_ORIGINS: str = "http://localhost:8501,http://127.0.0.1:8501"
 
-    # Machine Learning Model Paths
-    MODEL_PATH: str = "ml/artifacts/model.pkl"
-    PIPELINE_PATH: str = "ml/artifacts/pipeline.pkl"
+    _DEV_JWT_SECRET: str = "dev-only-jwt-secret-change-me-in-production"
+    _DEV_ADMIN_PASSWORD_HASH: str = (
+        "$2b$12$w5uwmvOZ7LEYex5dC7L3/uzqj0jXnSsOJuwwj3zAXWDjE5jRi8LUG"
+    )
 
-    _DEFAULT_JWT_SECRET: str = "super-secret-key-change-in-production-1234567890"
+    @model_validator(mode="after")
+    def apply_development_defaults(self) -> "Settings":
+        """Apply dev-only credential defaults when running locally without a .env file."""
+        if self.APP_ENV in ("development", "test"):
+            if not self.JWT_SECRET:
+                self.JWT_SECRET = self._DEV_JWT_SECRET
+            if not self.ADMIN_PASSWORD_HASH:
+                self.ADMIN_PASSWORD_HASH = self._DEV_ADMIN_PASSWORD_HASH
+            if os.getenv("ALLOW_USER_REGISTRATION") is None:
+                self.ALLOW_USER_REGISTRATION = True
+        return self
 
     @model_validator(mode="after")
     def validate_allowed_origins(self) -> "Settings":
@@ -58,15 +73,22 @@ class Settings(BaseSettings):
                     break
         return self
 
-
     @model_validator(mode="after")
-    def enforce_secret_rotation_in_production(self) -> "Settings":
-        """Raise at startup if the default JWT secret is still set in production."""
-        if self.APP_ENV == "production" and self.JWT_SECRET == self._DEFAULT_JWT_SECRET:
+    def enforce_production_secrets(self) -> "Settings":
+        """Require explicit secrets before running in production."""
+        if self.APP_ENV != "production":
+            return self
+
+        if not self.JWT_SECRET or self.JWT_SECRET == self._DEV_JWT_SECRET:
             raise ValueError(
-                "SECURITY ERROR: JWT_SECRET must be changed from the default value "
-                "before deploying to production. Set the JWT_SECRET environment "
-                "variable to a cryptographically secure random string."
+                "SECURITY ERROR: JWT_SECRET must be set to a cryptographically secure "
+                "random string before deploying to production."
+            )
+        if not self.ADMIN_PASSWORD_HASH or self.ADMIN_PASSWORD_HASH == self._DEV_ADMIN_PASSWORD_HASH:
+            raise ValueError(
+                "SECURITY ERROR: ADMIN_PASSWORD_HASH must be set to a unique bcrypt hash "
+                "before deploying to production. Generate with: "
+                "python -c \"import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())\""
             )
         return self
 
