@@ -83,6 +83,7 @@ TRAINING_DEFAULTS = {
         "processed_dir": "data/processed",
         "clean_data": "data/processed/telco_churn_clean.csv",
         "train_features": "data/processed/train_features.csv",
+        "train_features_natural": "data/processed/train_features_natural.csv",
         "test_features": "data/processed/test_features.csv",
         "artifacts_dir": "ml/artifacts"
     }

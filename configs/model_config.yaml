@@ -17,6 +17,10 @@ smote:
 # calculated via cost-sensitive decision theory is 0.167 (empirically 0.15 on validation sets).
 decision_threshold: 0.15
 
+# Dashboard risk band boundaries (analytics overview charts)
+risk_display_bands:
+  medium_min: 0.25
+
 # Feature selection settings (excluded from all models)
 pruned_columns:
   - "binary__has_support"
