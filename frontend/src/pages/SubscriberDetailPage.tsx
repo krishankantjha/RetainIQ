@@ -8,8 +8,10 @@ import SavePlayList from "@/components/subscriber/SavePlayList";
 import ShapDriversChart from "@/components/subscriber/ShapDriversChart";
 import SimulationList from "@/components/subscriber/SimulationList";
 import { TableSkeleton } from "@/components/ui/PageSkeleton";
+import Tooltip from "@/components/ui/Tooltip";
 import { fetchCustomerExplain, type CustomerExplain } from "@/lib/api";
 import { formatCurrency, formatPercent } from "@/lib/format";
+import { PRODUCT_TOOLTIPS } from "@/lib/productTooltips";
 
 export default function SubscriberDetailPage() {
   const { customerId } = useParams<{ customerId: string }>();
@@ -79,54 +81,56 @@ export default function SubscriberDetailPage() {
 
       {detail && (
         <>
-          <div className="dash-card p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-semibold">{detail.customer_id}</h2>
-                {detail.cohort_persona && (
-                  <p className="mt-1 text-sm text-muted-foreground">{detail.cohort_persona}</p>
-                )}
+          <Tooltip content={PRODUCT_TOOLTIPS.subscriberDetail} placement="top" className="block w-full">
+            <div className="dash-card p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold">{detail.customer_id}</h2>
+                  {detail.cohort_persona && (
+                    <p className="mt-1 text-sm text-muted-foreground">{detail.cohort_persona}</p>
+                  )}
+                </div>
+                <RiskBadge
+                  churnProbability={detail.churn_probability}
+                />
               </div>
-              <RiskBadge
-                churnProbability={detail.churn_probability}
-              />
+
+              <dl className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Churn probability</dt>
+                  <dd className="mt-1 text-lg font-semibold">
+                    {formatPercent(detail.churn_probability, 1)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Tenure</dt>
+                  <dd className="mt-1 text-lg font-semibold">{detail.tenure} months</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Monthly charges</dt>
+                  <dd className="mt-1 text-lg font-semibold">
+                    {formatCurrency(detail.monthly_charges)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Total charges</dt>
+                  <dd className="mt-1 text-lg font-semibold">
+                    {formatCurrency(detail.total_charges)}
+                  </dd>
+                </div>
+              </dl>
+
+              {detail.customer_features && (
+                <Link
+                  to={`/subscribers/${encodeURIComponent(customerId)}#counterfactual`}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary-soft hover:bg-primary/15"
+                >
+                  <FlaskConical className="h-4 w-4" />
+                  Open what-if editor
+                </Link>
+              )}
             </div>
-
-            <dl className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <dt className="text-xs text-muted-foreground">Churn probability</dt>
-                <dd className="mt-1 text-lg font-semibold">
-                  {formatPercent(detail.churn_probability, 1)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Tenure</dt>
-                <dd className="mt-1 text-lg font-semibold">{detail.tenure} months</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Monthly charges</dt>
-                <dd className="mt-1 text-lg font-semibold">
-                  {formatCurrency(detail.monthly_charges)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Total charges</dt>
-                <dd className="mt-1 text-lg font-semibold">
-                  {formatCurrency(detail.total_charges)}
-                </dd>
-              </div>
-            </dl>
-
-            {detail.customer_features && (
-              <Link
-                to={`/subscribers/${encodeURIComponent(customerId)}#counterfactual`}
-                className="mt-4 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary-soft hover:bg-primary/15"
-              >
-                <FlaskConical className="h-4 w-4" />
-                Open what-if editor
-              </Link>
-            )}
-          </div>
+          </Tooltip>
 
           <section className="grid gap-6 xl:grid-cols-2">
             <div className="dash-card p-5">

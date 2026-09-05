@@ -14,22 +14,24 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Fragment } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 
 import LogoWordmark from "@/components/LogoWordmark";
+import Tooltip from "@/components/ui/Tooltip";
 import { displayNameFromProfile, userContactEmail, userInitial } from "@/lib/format";
+import { PRODUCT_TOOLTIPS } from "@/lib/productTooltips";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/reports", label: "Reports", icon: FileText },
-  { to: "/at-risk", label: "At-risk subscribers", icon: ShieldAlert },
+  { to: "/reports", label: "Reports", icon: FileText, tooltip: PRODUCT_TOOLTIPS.reports },
+  { to: "/at-risk", label: "At-risk subscribers", icon: ShieldAlert, tooltip: PRODUCT_TOOLTIPS.atRisk },
   { to: "/analytics", label: "Trends", icon: BarChart3 },
   { to: "/diagnostics", label: "Model diagnostics", icon: Activity },
-  { to: "/save-plays", label: "Interventions", icon: Sparkles },
-  { to: "/what-if", label: "What-if lab", icon: FlaskConical },
+  { to: "/save-plays", label: "Interventions", icon: Sparkles, tooltip: PRODUCT_TOOLTIPS.interventions },
+  { to: "/what-if", label: "What-if lab", icon: FlaskConical, tooltip: PRODUCT_TOOLTIPS.whatIf },
   { to: "/explorer", label: "Data explorer", icon: Table2 },
-  { to: "/upload", label: "Upload data", icon: Upload },
+  { to: "/upload", label: "Upload data", icon: Upload, tooltip: PRODUCT_TOOLTIPS.upload },
 ] as const;
 
 type AppSidebarProps = {
@@ -73,23 +75,38 @@ export default function AppSidebar({ username, fullName, onLogout }: AppSidebarP
         <LogoWordmark size="sidebar" />
       </Link>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        {NAV.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => navClassName(isActive)}>
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <span
-                    className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-primary shadow-[0_0_12px_var(--primary)]"
-                    aria-hidden
-                  />
-                )}
-                <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={isActive ? 2.25 : 2} />
-                <span className="truncate">{label}</span>
-              </>
-            )}
-          </NavLink>
-        ))}
+      <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-visible px-3 py-2">
+        {NAV.map((item) => {
+          const { to, label, icon: Icon } = item;
+          const tooltip = "tooltip" in item ? item.tooltip : undefined;
+
+          const link = (
+            <NavLink to={to} className={({ isActive }) => navClassName(isActive)}>
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span
+                      className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-primary shadow-[0_0_12px_var(--primary)]"
+                      aria-hidden
+                    />
+                  )}
+                  <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={isActive ? 2.25 : 2} />
+                  <span className="truncate">{label}</span>
+                </>
+              )}
+            </NavLink>
+          );
+
+          if (!tooltip) {
+            return <Fragment key={to}>{link}</Fragment>;
+          }
+
+          return (
+            <Tooltip key={to} content={tooltip} placement="top" className="block w-full">
+              {link}
+            </Tooltip>
+          );
+        })}
       </nav>
 
       <div className="mt-auto shrink-0 space-y-4 px-3 pb-5 pt-3">

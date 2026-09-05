@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { searchCustomers } from "@/lib/api";
+import { PRODUCT_TOOLTIPS } from "@/lib/productTooltips";
+import Tooltip from "@/components/ui/Tooltip";
 
 type GlobalSearchProps = {
   inputRef?: RefObject<HTMLInputElement | null>;
@@ -87,31 +89,33 @@ export default function GlobalSearch({ inputRef }: GlobalSearchProps) {
 
   return (
     <div className="relative w-full">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          ref={inputRef}
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => {
-            setFocused(true);
-            if (results.length > 0 || pageMatches.length > 0) setOpen(true);
-          }}
-          onBlur={() => setFocused(false)}
-          placeholder="Search subscribers by ID or jump to a page…"
-          className="h-10 w-full rounded-xl border border-border/70 bg-surface-low/80 pl-10 pr-14 text-sm placeholder:text-muted-foreground transition-colors focus:border-primary/45 focus:bg-surface-low focus:outline-none focus:ring-2 focus:ring-primary/20"
-          aria-label="Global search"
-          autoComplete="off"
-        />
-        <kbd
-          className={`pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-border/80 bg-surface-high/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-block ${
-            focused ? "opacity-0" : "opacity-100"
-          }`}
-        >
-          ⌘K
-        </kbd>
-      </div>
+      <Tooltip content={PRODUCT_TOOLTIPS.search} placement="bottom" className="block w-full">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => {
+              setFocused(true);
+              if (results.length > 0 || pageMatches.length > 0) setOpen(true);
+            }}
+            onBlur={() => setFocused(false)}
+            placeholder="Search subscribers by ID or jump to a page…"
+            className="h-10 w-full rounded-xl border border-border/70 bg-surface-low/80 pl-10 pr-14 text-sm placeholder:text-muted-foreground transition-colors focus:border-primary/45 focus:bg-surface-low focus:outline-none focus:ring-2 focus:ring-primary/20"
+            aria-label="Global search"
+            autoComplete="off"
+          />
+          <kbd
+            className={`pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-border/80 bg-surface-high/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-block ${
+              focused ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            ⌘K
+          </kbd>
+        </div>
+      </Tooltip>
 
       {showDropdown && (
         <ul

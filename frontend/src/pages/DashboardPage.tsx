@@ -16,6 +16,7 @@ import TenureRiskChart from "@/components/charts/TenureRiskChart";
 import EmptyCohortBanner from "@/components/dashboard/EmptyCohortBanner";
 import MetricCard from "@/components/dashboard/MetricCard";
 import ModelStatusCard from "@/components/dashboard/ModelStatusCard";
+import Tooltip from "@/components/ui/Tooltip";
 import { ChartGridSkeleton, MetricCardsSkeleton } from "@/components/ui/PageSkeleton";
 import {
   buildChurnHistogram,
@@ -34,6 +35,7 @@ import {
   type Overview,
 } from "@/lib/api";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
+import { PRODUCT_TOOLTIPS } from "@/lib/productTooltips";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -132,42 +134,44 @@ export default function DashboardPage() {
         <div className="space-y-6">
           {total === 0 && <EmptyCohortBanner />}
 
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <MetricCard
-              label="Subscribers scored"
-              value={formatNumber(total)}
-              icon={Users}
-              accent="primary"
-            />
-            <MetricCard
-              label="Above threshold"
-              value={formatNumber(actionableHigh)}
-              hint="Predicted churn ≥15% (decision threshold)"
-              icon={ShieldAlert}
-              accent="danger"
-            />
-            <MetricCard
-              label="Medium band"
-              value={formatNumber(risk.medium)}
-              hint="15–25% predicted probability"
-              icon={AlertTriangle}
-              accent="warning"
-              emptyState={risk.medium === 0}
-            />
-            <MetricCard
-              label="Avg predicted churn"
-              value={formatPercent(overview.average_churn_probability, 1)}
-              icon={TrendingDown}
-              accent="warning"
-            />
-            <MetricCard
-              label="Flagged MRR"
-              value={formatCurrency(overview.total_value_at_risk)}
-              hint="Monthly charges for flagged, non-churned accounts"
-              icon={DollarSign}
-              accent="danger"
-            />
-          </section>
+          <Tooltip content={PRODUCT_TOOLTIPS.dashboard} placement="top" className="block w-full">
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <MetricCard
+                label="Subscribers scored"
+                value={formatNumber(total)}
+                icon={Users}
+                accent="primary"
+              />
+              <MetricCard
+                label="Above threshold"
+                value={formatNumber(actionableHigh)}
+                hint="Predicted churn ≥15% (decision threshold)"
+                icon={ShieldAlert}
+                accent="danger"
+              />
+              <MetricCard
+                label="Medium band"
+                value={formatNumber(risk.medium)}
+                hint="15–25% predicted probability"
+                icon={AlertTriangle}
+                accent="warning"
+                emptyState={risk.medium === 0}
+              />
+              <MetricCard
+                label="Avg predicted churn"
+                value={formatPercent(overview.average_churn_probability, 1)}
+                icon={TrendingDown}
+                accent="warning"
+              />
+              <MetricCard
+                label="Flagged MRR"
+                value={formatCurrency(overview.total_value_at_risk)}
+                hint="Monthly charges for flagged, non-churned accounts"
+                icon={DollarSign}
+                accent="danger"
+              />
+            </section>
+          </Tooltip>
 
           {total > 0 && (
             <p className="text-sm text-muted-foreground">
