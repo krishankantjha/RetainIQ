@@ -602,20 +602,22 @@ export default function LoginPage() {
                       )}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={onGuestLogin}
-                      disabled={loading || guestLoading}
-                      className="flex h-12 w-full items-center justify-center gap-1 rounded-lg border border-primary/40 bg-primary/5 text-sm font-semibold text-primary-soft transition-all hover:border-primary/60 hover:bg-primary/10 disabled:opacity-60"
-                    >
-                      {guestLoading ? (
-                        <>
-                          Continuing as guest <Loader2 className="h-4 w-4 animate-spin" />
-                        </>
-                      ) : (
-                        "Continue as guest"
-                      )}
-                    </button>
+                    {import.meta.env.DEV && (
+                      <button
+                        type="button"
+                        onClick={onGuestLogin}
+                        disabled={loading || guestLoading}
+                        className="flex h-12 w-full items-center justify-center gap-1 rounded-lg border border-primary/40 bg-primary/5 text-sm font-semibold text-primary-soft transition-all hover:border-primary/60 hover:bg-primary/10 disabled:opacity-60"
+                      >
+                        {guestLoading ? (
+                          <>
+                            Continuing as guest <Loader2 className="h-4 w-4 animate-spin" />
+                          </>
+                        ) : (
+                          "Continue as guest"
+                        )}
+                      </button>
+                    )}
                   </form>
                 ) : (
                   <form className="mt-5 space-y-5" onSubmit={onSignUp}>
