@@ -15,7 +15,7 @@ from app.schemas.auth import (
     UserProfile,
     UserProfileUpdate,
 )
-from app.services.auth_service import authenticate_user, get_current_user
+from app.services.auth_service import get_current_user, login_user
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.core.config import settings
 
@@ -31,11 +31,11 @@ def login_access_token(
     OAuth2 compatible token login, retrieve a JWT access token for future requests.
     This endpoint supports interactive login in Swagger UI.
     """
-    user = authenticate_user(db, form_data.username, form_data.password)
+    user, error_detail = login_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail=error_detail or "Could not sign in.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

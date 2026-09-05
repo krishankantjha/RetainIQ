@@ -14,7 +14,14 @@ def test_login_and_token_generation(client):
         data={"username": "admin", "password": "wrongpassword"},
     )
     assert bad_login.status_code == 401
-    assert "Incorrect email or password" in bad_login.json()["detail"]
+    assert bad_login.json()["detail"] == "Incorrect password."
+
+    missing_login = client.post(
+        "/api/v1/auth/login",
+        data={"username": "nobody@example.com", "password": "password123"},
+    )
+    assert missing_login.status_code == 401
+    assert missing_login.json()["detail"] == "No account found for this email. Sign up to create one."
 
     good_login = client.post(
         "/api/v1/auth/login",

@@ -22,23 +22,41 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 
 
-def authenticate_user(db: Session, username: str, password: str) -> Optional[str]:
-    """Authenticate a user using settings configurations or database profiles."""
-    if username == settings.ADMIN_USERNAME and verify_password(password, settings.ADMIN_PASSWORD_HASH):
-        return username
+def login_user(db: Session, username: str, password: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Validate credentials for sign-in.
+    Returns (username, None) on success or (None, user-facing error message) on failure.
+    """
+    normalized = username.strip()
+    if not normalized:
+        return None, "Email and password are required."
 
+    if normalized == settings.ADMIN_USERNAME:
+        if verify_password(password, settings.ADMIN_PASSWORD_HASH):
+            return settings.ADMIN_USERNAME, None
+        return None, "Incorrect password."
+
+    email = normalized.lower()
     try:
         user = (
             db.query(User)
-            .filter(func.lower(User.username) == username.strip().lower())
+            .filter(func.lower(User.username) == email)
             .first()
         )
-        if user and verify_password(password, user.hashed_password):
-            return user.username
+        if not user:
+            return None, "No account found for this email. Sign up to create one."
+        if verify_password(password, user.hashed_password):
+            return user.username, None
+        return None, "Incorrect password."
     except SQLAlchemyError as e:
         logger.error(f"Database error during authentication: {e}")
+        return None, "Could not sign in right now. Please try again."
 
-    return None
+
+def authenticate_user(db: Session, username: str, password: str) -> Optional[str]:
+    """Authenticate a user using settings configurations or database profiles."""
+    authenticated_username, _ = login_user(db, username, password)
+    return authenticated_username
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> str:
