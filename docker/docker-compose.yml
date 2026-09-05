@@ -1,66 +1,46 @@
 version: '3.8'
 
-services:
-  db:
-    image: postgres:15-alpine
-    container_name: retainiq-db
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-retainiq}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-retainiq_secure_pass}
-      - POSTGRES_DB=${POSTGRES_DB:-customer_retention}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-retainiq} -d ${POSTGRES_DB:-customer_retention}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: always
+# Local stack: SQLite file DB + single admin login (no Postgres, no public sign-up by default).
+# Set JWT_SECRET and ADMIN_PASSWORD_HASH in .env for any shared/public deployment.
 
+services:
   backend:
     build:
       context: ..
       dockerfile: backend/Dockerfile
     container_name: retainiq-backend
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-retainiq}:${POSTGRES_PASSWORD:-retainiq_secure_pass}@db:5432/${POSTGRES_DB:-customer_retention}
-      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
-      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set}
-      - ALLOW_USER_REGISTRATION=${ALLOW_USER_REGISTRATION:-false}
-      - APP_ENV=${APP_ENV:-production}
-      - DEBUG=${DEBUG:-False}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501,https://retainiq.com}
+      - DATABASE_URL=sqlite:///./data/customer_retention.db
+      - APP_ENV=${APP_ENV:-development}
+      - ALLOW_USER_REGISTRATION=false
+      - JWT_SECRET=${JWT_SECRET:-}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost}
     volumes:
       - ../backend/logs:/app/backend/logs
+      - retainiq_sqlite:/app/backend/data
     ports:
       - "${BACKEND_PORT:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: always
 
   frontend:
     build:
       context: ..
-      dockerfile: frontend/Dockerfile
+      dockerfile: docker/frontend.Dockerfile
     container_name: retainiq-frontend
-    environment:
-      - API_BASE_URL=http://backend:8000
     ports:
-      - "${FRONTEND_PORT:-8501}:8501"
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8501/')\""]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -82,5 +62,4 @@ services:
     restart: always
 
 volumes:
-  pgdata:
-
+  retainiq_sqlite:
