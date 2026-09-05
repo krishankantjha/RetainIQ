@@ -95,8 +95,8 @@ def test_cors_origins_parsing_and_fallback():
         
         s_invalid = Settings(ALLOWED_ORIGINS="https://retainiq.com, malformed_origin_without_http")
         # Validator should have run and reset the value
-        assert "http://localhost:8501" in s_invalid.ALLOWED_ORIGINS
-        assert "http://127.0.0.1:8501" in s_invalid.ALLOWED_ORIGINS
+        assert "http://localhost:5173" in s_invalid.ALLOWED_ORIGINS
+        assert "http://127.0.0.1:5173" in s_invalid.ALLOWED_ORIGINS
         mock_logger.error.assert_called()
 
 

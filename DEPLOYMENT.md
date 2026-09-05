@@ -1,113 +1,65 @@
 # Deployment Guide: RetainIQ Customer Retention Platform
 
-This guide covers production deployment configurations, container orchestration, environment setup, and database migrations for the RetainIQ platform.
+This guide covers the **default local stack** (SQLite + single admin) and optional environment configuration.
+
+> See **[docs/LOCAL_SETUP.md](LOCAL_SETUP.md)** for default credentials, messaging, and scope.
 
 ---
 
-## Database Requirements 
+## Database (SQLite — default)
 
-Avoid using SQLite in production. Because SQLite relies on file-level write locking, concurrent writes from the FastAPI background worker (`process_upload_task`) and the main API handler will trigger locking exceptions (`OperationalError: database is locked`). Use PostgreSQL instead.
+RetainIQ uses a **SQLite file** by default to persist:
 
-The platform natively supports PostgreSQL via the `DATABASE_URL` environment variable. When PostgreSQL is detected, the database engine automatically optimizes connection pool parameters (such as setting `pool_size=20`, `max_overflow=10`, and `pool_recycle=1800`) to maintain stability under high loads.
+- Upload metadata
+- Scored **subscriber rows** (Telco schema cohort data)
+- Predictions, SHAP drivers, and save plays
 
-### Local Development SQLite Databases
-During local development, two SQLite databases are used:
-1. **`backend/customer_retention.db`**: The primary database for the FastAPI application and unit tests. It is pre-seeded with test users and sample cohorts.
-2. **`customer_retention.db` (Project Root)**: Used as a fallback database by standalone preprocessing and machine learning scripts run directly from the project root.
+```env
+DATABASE_URL=sqlite:///./customer_retention.db
+```
 
-Please do not delete or rename these files; they are referenced by distinct environments and pipeline configurations.
+**Local file:** `backend/customer_retention.db` (gitignored)
+
+**Docker:** volume `retainiq_sqlite` mounted at `/app/backend/data/`
+
+### Optional: PostgreSQL
+
+The codebase still accepts `DATABASE_URL=postgresql://...` for future scaling. Docker Compose **no longer** starts Postgres by default.
 
 ---
 
-## 1. Infrastructure Topology & Container Design
-
-The platform runs on a multi-container Docker stack comprising a FastAPI application server, a Streamlit dashboard, a PostgreSQL database, and an Nginx reverse proxy.
+## 1. Infrastructure topology (default stack)
 
 ```mermaid
 graph TD
-    User([End User]) -->|HTTPS / WSS| Proxy[Nginx Reverse Proxy]
-    Proxy -->|Port 8501| Streamlit[Streamlit Frontend Container]
-    Proxy -->|Port 8000| FastAPI[FastAPI Backend Container]
-    Streamlit -->|REST Requests| FastAPI
-    FastAPI -->|Read-Write Connection| DB[(PostgreSQL Database)]
+    User([Browser]) -->|Port 80| Proxy[Nginx]
+    Proxy -->|80| React[React SPA]
+    Proxy -->|8000| FastAPI[FastAPI API]
+    React -->|REST + JWT| FastAPI
+    FastAPI -->|SQLite file| DB[(cohort store)]
 ```
+
+Services: **backend**, **frontend**, **nginx** — no separate database container.
 
 ---
 
-## 2. Docker Compose Configuration
+## 2. Docker Compose
 
-Use the configured `docker-compose.yml` file located in the `docker/` folder to spin up the production stack.
+From the `docker/` folder:
 
-```yaml
-version: '3.8'
-
-services:
-  db:
-    image: postgres:15-alpine
-    container_name: retainiq-db
-    environment:
-      - POSTGRES_USER=retainiq
-      - POSTGRES_PASSWORD=retainiq_secure_pass
-      - POSTGRES_DB=customer_retention
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U retainiq -d customer_retention"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: always
-
-  backend:
-    build:
-      context: ..
-      dockerfile: backend/Dockerfile
-    container_name: retainiq-backend
-    environment:
-      - DATABASE_URL=postgresql://retainiq:retainiq_secure_pass@db:5432/customer_retention
-      - JWT_SECRET=super-secret-key-change-in-production-1234567890
-      - APP_ENV=production
-      - DEBUG=False
-      - ALLOWED_ORIGINS=http://localhost:8501,http://127.0.0.1:8501,https://retainiq.yourdomain.com
-    volumes:
-      - ../backend/logs:/app/backend/logs
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: always
-
-  frontend:
-    build:
-      context: ..
-      dockerfile: frontend/Dockerfile
-    container_name: retainiq-frontend
-    environment:
-      - API_BASE_URL=http://backend:8000
-    ports:
-      - "8501:8501"
-    depends_on:
-      - backend
-    restart: always
-
-  nginx:
-    image: nginx:alpine
-    container_name: retainiq-nginx
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - frontend
-      - backend
-    restart: always
-
-volumes:
-  pgdata:
+```bash
+docker compose up --build
 ```
+
+Key environment variables (see root `.env.example`):
+
+| Variable | Default |
+|----------|---------|
+| `DATABASE_URL` | `sqlite:///./data/customer_retention.db` |
+| `ALLOW_USER_REGISTRATION` | `false` |
+| `APP_ENV` | `development` |
+
+**Default login** (development): `admin` / `password`
 
 ---
 
@@ -121,14 +73,17 @@ Customize application behavior at startup by supplying the following variables:
 | `APP_ENV` | String | `development` | Deployment environment mode (`development`, `production`). |
 | `DEBUG` | Boolean | `True` | Enables debug log output and verbose traceback responses. |
 | `DATABASE_URL` | String | `sqlite:///./customer_retention.db` | Connection URI. Defaults to local SQLite if unset. |
-| `ALLOWED_ORIGINS` | String | `http://localhost:8501,http://127.0.0.1:8501` | Comma-separated list of allowed CORS domains. |
+| `ALLOWED_ORIGINS` | String | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated list of allowed CORS domains. |
 | `JWT_SECRET` | String | (Default string) | HMAC-SHA256 signing secret. **Mandatory override in production**; server will refuse to start if default is used. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Integer | `60` | Lifecycle duration of user auth sessions. |
 
-### Frontend Application Environment
-| Variable Name | Type | Default Value | Description |
-| :--- | :---: | :--- | :--- |
-| `API_BASE_URL` | String | `http://127.0.0.1:8000` | HTTP root URL of the target API container. |
+### Frontend build (Vite)
+
+Set at **image build time** via `docker/frontend.Dockerfile`:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `VITE_API_BASE_URL` | *(empty)* | API root for browser `fetch`. Empty = same-origin `/api` through nginx. Local dev: `http://127.0.0.1:8000` in `frontend/.env`. |
 
 ---
 
@@ -149,41 +104,11 @@ docker exec -it retainiq-backend alembic upgrade head
 
 ---
 
-## 5. Reverse Proxy & WebSocket Configuration
+## 5. Reverse Proxy Configuration
 
-Streamlit leverages active WebSockets for browser synchronization. When deploying behind a reverse proxy (e.g., Nginx), you must enable WebSocket upgrades:
+The React SPA is static files served by nginx in the `frontend` container. The root `nginx` service proxies `/` to `frontend:80` and `/api/` to `backend:8000`.
 
-### Nginx Configuration (`docker/nginx.conf`)
-```nginx
-server {
-    listen 80;
-    server_name localhost;
-
-    # Backend API Routing
-    location /api/ {
-        proxy_pass http://backend:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Streamlit Frontend Dashboard Routing
-    location / {
-        proxy_pass http://frontend:8501;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Streamlit WebSocket Support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 86400;
-    }
-}
-```
+See `docker/nginx.conf` and `docker/frontend.nginx.conf`.
 
 ---
 

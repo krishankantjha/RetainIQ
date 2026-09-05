@@ -2,12 +2,15 @@
 
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-green?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.35.0-red?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![React](https://img.shields.io/badge/React-19-blue?style=for-the-badge&logo=react&logoColor=white)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-7-purple?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![SQLite](https://img.shields.io/badge/SQLite-Default-lightgrey?style=for-the-badge&logo=sqlite&logoColor=white)](docs/LOCAL_SETUP.md)
 [![Pytest](https://img.shields.io/badge/Pytest-Passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![Docker](https://img.shields.io/badge/Docker-Orchestrated-blue?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
-RetainIQ is a modular, end-to-end machine learning platform built to predict, analyze, and mitigate customer churn. The platform uses classification models trained on customer subscription data (IBM Telco Churn standard) and translates risk signals into actionable, prescriptive "Save Plays" to protect Monthly Recurring Revenue (MRR) and optimize customer success workflows.
+RetainIQ is a modular, end-to-end machine learning platform built to predict, analyze, and mitigate **telecom subscriber churn**. It uses models trained on the IBM Telco Churn schema and translates risk signals into actionable "Save Plays" to protect Monthly Recurring Revenue (MRR).
+
+> **Default setup:** SQLite + single `admin` login. Public sign-up disabled unless configured. See **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
 
 ---
 
@@ -17,11 +20,11 @@ RetainIQ is a modular, end-to-end machine learning platform built to predict, an
 ```mermaid
 graph TD
     User([Browser / Client]) -->|HTTP Port 80 / 443| Nginx[Nginx Reverse Proxy]
-    Nginx -->|Port 8501| Streamlit[Streamlit UI Dashboard]
+    Nginx -->|Port 80| React[React SPA (static)]
     Nginx -->|Port 8000| FastAPI[FastAPI Backend Service]
-    Streamlit -->|REST Requests & Auth| FastAPI
+    React -->|REST Requests & Auth| FastAPI
     FastAPI -->|Async Tasks Queue| Worker[Threadpool / Background Workers]
-    FastAPI -->|Read-Write Queries| DB[(SQLite / PostgreSQL Database)]
+    FastAPI -->|Read-Write Queries| DB[(SQLite — cohort store)]
 ```
 
 ### 2. Asynchronous Cohort Ingestion Lifecycle
@@ -29,7 +32,7 @@ graph TD
 sequenceDiagram
     autonumber
     actor Developer as End User
-    participant UI as Streamlit Dashboard
+    participant UI as React Dashboard
     participant API as FastAPI Server
     participant Worker as Background Task
     participant DB as SQL Database
@@ -108,10 +111,10 @@ ai-customer-retention-platform/
 │   │   ├── database/         # SQLAlchemy ORM schemas and Alembic configurations
 │   │   └── services/         # Core business logic (Inference, DB persistence, Ingestion)
 │   └── tests/                # Pytest unit and integration test suite
-├── frontend/                 # Streamlit UI Dashboard Tier
-│   ├── app.py                # Analytical dashboard application router
-│   ├── api_client.py         # Thread-safe REST API client
-│   └── views/                # Cohorts, Predictions, Uploads, and Telemetry subviews
+├── frontend/                 # React + Vite SPA
+│   ├── src/                  # pages, components, lib (API client), assets
+│   ├── package.json
+│   └── vite.config.ts
 ├── ml/                       # Machine Learning Engineering Tier
 │   ├── notebooks/            # Exploratory Data Analysis and modeling sandboxes
 │   ├── preprocessing/        # Pandas ETL, cleaning, engineering, and validators
@@ -124,6 +127,9 @@ ai-customer-retention-platform/
 │       └── model_metadata.pkl # Model training inputs and expected features list
 ├── configs/                  # Global YAML settings, features, and model constants
 ├── docker/                   # Nginx reverse proxy configs and docker compose files
+│   ├── docker-compose.yml
+│   ├── frontend.Dockerfile   # React build + nginx static server
+│   └── nginx.conf
 └── data/                     # Ignored directory hosting raw and clean datasets
 ```
 
@@ -213,17 +219,27 @@ Run the setup script from the project root directory. This script will automatic
 ```
 
 ### 2. Configure Environment Variables
-Copy `backend/.env.example` to `backend/.env` and replace `JWT_SECRET` with a secure random key:
+Copy `backend/.env.example` to `backend/.env`. For local development you can use the defaults (SQLite + admin account).
+
+**Default login** (`APP_ENV=development`, default dev hash):
+- Username: `admin`
+- Password: `password`
+
+Set `ALLOW_USER_REGISTRATION=false` (default) for a single admin account.
+
 ```env
 APP_NAME="RetainIQ API"
 JWT_SECRET="your-secure-random-token-here"
+ALLOW_USER_REGISTRATION=false
+DATABASE_URL="sqlite:///./customer_retention.db"
 ```
 
 ### ⚙️ Environment Configuration Schema
 
 | Variable | Description | Default | Requirements |
 | :--- | :--- | :---: | :---: |
-| `DATABASE_URL` | SQLAlchemy connection string target | `sqlite:///customer_retention.db` | Required |
+| `DATABASE_URL` | SQLAlchemy connection string (SQLite default) | `sqlite:///./customer_retention.db` | Required |
+| `ALLOW_USER_REGISTRATION` | Public sign-up endpoint | `false` | Recommended |
 | `JWT_SECRET` | Secret key used to sign client credentials tokens | *None* | Required |
 | `APP_NAME` | Global application name match for pytest checks | `"RetainIQ API"` | Required |
 | `DEBUG` | Enables verbose console printing | `False` | Optional |
@@ -251,13 +267,15 @@ uvicorn app.main:app --reload
 * **API Documentation (Swagger)**: Open [http://localhost:8000/docs](http://localhost:8000/docs)
 * **API Redoc**: Open [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-#### Launch the Streamlit Dashboard:
+#### Launch the React UI:
 ```bash
 # Navigate to the frontend/ directory in a separate terminal tab
-source ../venv/Scripts/activate
-streamlit run app.py
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
 ```
-* **UI Interface**: Open [http://localhost:8501](http://localhost:8501)
+* **UI Interface**: Open [http://localhost:5173](http://localhost:5173)
 
 ---
 
@@ -328,8 +346,8 @@ python -m pytest
   During server boot, the application reads the SHA-256 hashes of `pipeline.pkl`, `model.pkl`, `encoders.pkl`, and `model_metadata.pkl` inside `artifacts_manifest.json`. If a mismatch is detected, startup aborts with an `ArtifactValidationError` to prevent loading corrupted model files.
 * **Thread-Safe Memory Sweepers**:
   API requests eviction loops clear old timestamps periodically (every 500 requests) inside the sliding-window rate-limiting middleware to prevent memory growth leaks in production.
-* **SQLite Concurrency Lock Protection**:
-  During local SQLite usage, write locks can block simultaneous queries. RetainIQ processes upload parsing tasks sequentially inside a background worker queue to avoid contention. PostgreSQL is used in staging/production to natively scale concurrent reads and writes.
+* **SQLite (default)**:
+  Local SQLite file stores uploaded subscriber cohorts and scores. Upload processing runs in a background worker to reduce write contention. See **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
 * **Relational Database Cascades**:
   The persistence schema utilizes strict SQL relational cascades. Deleting any `Upload` record automatically cascades and purges all dependent customer profiles and prediction logs, maintaining DB integrity and clean storage.
 
@@ -337,7 +355,7 @@ python -m pytest
 
 ## 🌍 Enterprise Hosting & Cloud Deployment
 
-For information on multi-container deployments using local Docker Compose stacks, or instructions for hosting on a 100% free cloud tier (Render, Neon PostgreSQL, and Streamlit Community Cloud), read the **[DEPLOYMENT.md](file:///c:/Users/krish/Downloads/ai-customer-retention-platform/DEPLOYMENT.md)** guide.
+For Docker Compose and optional cloud hosting, see **[DEPLOYMENT.md](DEPLOYMENT.md)** and **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
 
 ---
 
