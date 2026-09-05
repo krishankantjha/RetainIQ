@@ -121,7 +121,7 @@ def get_system_health(X_inference: pd.DataFrame) -> dict:
         }
 
     status = "Healthy"
-    message = "Model is operational with stable distribution bounds."
+    message = "Uploaded cohort distribution aligns with the model training baseline."
 
     num_total = sum(1 for m in drift_metrics.values() if m.get("method") == "ks_test")
     num_drifted = sum(1 for m in drift_metrics.values() if m.get("method") == "ks_test" and m.get("drifted"))
@@ -129,13 +129,17 @@ def get_system_health(X_inference: pd.DataFrame) -> dict:
 
     if is_drifted:
         status = "Warning"
-        message = "Feature drift detected on one or more variables."
+        message = (
+            "Uploaded cohort differs from the model training baseline. "
+            "This is common when scoring the full IBM Telco file instead of the training split."
+        )
 
     if drift_ratio >= 0.20 or numeric_drift_ratio >= 0.40:
         status = "Degraded"
         message = (
-            f"Significant feature drift detected (Combined Ratio: {drift_ratio * 100:.1f}%, "
-            f"Numerical Ratio: {numeric_drift_ratio * 100:.1f}%). Recalibration recommended."
+            f"Cohort differs from training baseline on {drift_ratio * 100:.1f}% of checked features "
+            f"({numeric_drift_ratio * 100:.1f}% numerical). "
+            "Review before treating as production drift — not a live monitoring alert."
         )
 
     logger.info(
@@ -162,8 +166,8 @@ def get_system_health(X_inference: pd.DataFrame) -> dict:
         "model_name": model_name,
         "model_version": model_version,
         "last_trained": training_date,
-        "drift_detected": is_drifted,
-        "drift_ratio": drift_ratio,
+        "drift_detected": bool(is_drifted),
+        "drift_ratio": float(drift_ratio),
         "metrics": val_metrics,
         "drift_details": drift_metrics,
     }

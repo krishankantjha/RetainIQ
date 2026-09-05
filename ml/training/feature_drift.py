@@ -87,13 +87,13 @@ def _compute_chi_square_and_psi(train_series: pd.Series, inf_series: pd.Series, 
     # PSI >= 0.25 is the standard MLOps threshold for significant distribution drift.
     # We use PSI >= 0.25 as the primary indicator for categorical features to avoid
     # false-positive alerts caused by statistical p-value sensitivity on high-imbalance inputs.
-    is_drifted = psi >= 0.25
+    is_drifted = bool(psi >= 0.25)
     
     return {
         "chi2_statistic": chi2_stat,
         "p_value": p_val,
-        "psi": psi,
-        "drifted": is_drifted
+        "psi": float(psi),
+        "drifted": is_drifted,
     }
 
 
@@ -194,7 +194,7 @@ def detect_feature_drift(X_inference: pd.DataFrame, random_seed: int = 42) -> di
         metrics[col] = {
             "ks_statistic": ks_stat,
             "p_value": p_val,
-            "drifted": is_col_drifted,
+            "drifted": bool(is_col_drifted),
             "method": "ks_test"
         }
         
@@ -222,7 +222,7 @@ def detect_feature_drift(X_inference: pd.DataFrame, random_seed: int = 42) -> di
             "chi2_statistic": drift_res.get("chi2_statistic", 0.0),
             "p_value": drift_res.get("p_value", 1.0),
             "psi": drift_res.get("psi", 0.0),
-            "drifted": is_col_drifted,
+            "drifted": bool(is_col_drifted),
             "method": "chi2_and_psi"
         }
         
@@ -236,8 +236,8 @@ def detect_feature_drift(X_inference: pd.DataFrame, random_seed: int = 42) -> di
     )
     
     return {
-        "is_drifted": global_drift,
-        "drift_ratio": drift_ratio,
+        "is_drifted": bool(global_drift),
+        "drift_ratio": float(drift_ratio),
         "baseline_source": os.path.basename(baseline_path),
         "metrics": metrics,
     }
