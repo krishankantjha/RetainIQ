@@ -10,8 +10,8 @@ React + Vite single-page app for RetainIQ authentication and dashboard.
 ## Setup
 
 ```bash
+cp .env.example .env   # from repo root
 cd frontend
-cp .env.example .env
 npm install
 ```
 
@@ -36,8 +36,10 @@ npm run preview
 
 ## Environment
 
+All variables live in the **repo root** `.env`. Vite reads only `VITE_*` keys.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_BASE_URL` | `http://127.0.0.1:8000` | FastAPI base URL (empty string = same-origin `/api` via nginx) |
+| `VITE_API_BASE_URL` | *(empty)* | FastAPI base URL (empty = same-origin `/api` via nginx or Vite proxy) |
 | `VITE_GUEST_USERNAME` | `admin` | One-click login username |
 | `VITE_GUEST_PASSWORD` | `password` | One-click login password |

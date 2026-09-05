@@ -16,6 +16,7 @@ htmlcov/
 # Environment Variables
 .env
 backend/.env
+frontend/.env
 
 # ML Artifacts (binary models — regenerate via pipeline)
 *.pkl
@@ -27,7 +28,6 @@ ml/artifacts/metrics/prediction_logs_*.jsonl
 # React web UI
 frontend/node_modules/
 frontend/dist/
-frontend/.env
 frontend/login.json
 frontend/.vite/
 frontend/tsconfig.tsbuildinfo

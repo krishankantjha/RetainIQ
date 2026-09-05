@@ -45,10 +45,10 @@ Services: **backend**, **frontend**, **nginx** — no separate database containe
 
 ## 2. Docker Compose
 
-From the `docker/` folder:
+From the `docker/` folder (loads repo root `.env`):
 
 ```bash
-docker compose up --build
+docker compose --env-file ../.env up --build
 ```
 
 Key environment variables (see root `.env.example`):
@@ -83,7 +83,7 @@ Set at **image build time** via `docker/frontend.Dockerfile`:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `VITE_API_BASE_URL` | *(empty)* | API root for browser `fetch`. Empty = same-origin `/api` through nginx. Local dev: `http://127.0.0.1:8000` in `frontend/.env`. |
+| `VITE_API_BASE_URL` | *(empty)* | API root for browser `fetch`. Empty = same-origin `/api` through nginx. Set in repo root `.env` for direct API URL. |
 
 ---
 
@@ -189,7 +189,7 @@ export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
 cd docker
 
 # Build and startup all services in the background
-docker-compose up --build -d
+docker compose --env-file ../.env up --build -d
 
 # Check startup logs and health status
 docker-compose logs -f

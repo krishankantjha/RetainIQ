@@ -219,7 +219,7 @@ Run the setup script from the project root directory. This script will automatic
 ```
 
 ### 2. Configure Environment Variables
-Copy `backend/.env.example` to `backend/.env`. For local development you can use the defaults (SQLite + admin account).
+Copy `.env.example` to `.env` in the **project root** (one file for backend, frontend, and Docker).
 
 **Default login** (`APP_ENV=development`, default dev hash):
 - Username: `admin`
@@ -269,9 +269,8 @@ uvicorn app.main:app --reload
 
 #### Launch the React UI:
 ```bash
-# Navigate to the frontend/ directory in a separate terminal tab
+# From repo root — ensure .env exists (cp .env.example .env)
 cd frontend
-cp .env.example .env
 npm install
 npm run dev
 ```

@@ -32,13 +32,13 @@ echo "Upgrading pip..."
 python -m pip install --upgrade pip
 echo "Installing dependencies from backend/requirements-dev.txt..."
 pip install -r backend/requirements-dev.txt
-# 6. Duplicate env template
-if [ ! -f "backend/.env" ]; then
-    echo "Creating backend/.env from .env.example..."
-    cp backend/.env.example backend/.env
-    echo "SUCCESS: backend/.env created. Remember to replace placeholder values."
+# 6. Duplicate env template (repo root — shared by backend, frontend, Docker)
+if [ ! -f ".env" ]; then
+    echo "Creating .env from .env.example..."
+    cp .env.example .env
+    echo "SUCCESS: .env created at repo root. Remember to replace placeholder values."
 else
-    echo "INFO: backend/.env already exists. Skipping copy."
+    echo "INFO: .env already exists at repo root. Skipping copy."
 fi
 echo "=== Setup Completed Successfully ==="
 echo "To activate your virtual environment, run:"

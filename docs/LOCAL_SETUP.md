@@ -34,10 +34,11 @@ uvicorn app.main:app --reload
 
 ```bash
 cd frontend
-cp .env.example .env
 npm install
 npm run dev
 ```
+
+Environment variables live in the **repo root** `.env` (copy from `.env.example`). Vite reads `VITE_*` keys from there.
 
 Open http://localhost:5173 — sign in with `admin` / `password` (development defaults).
 
@@ -46,8 +47,9 @@ Backend must be running on http://127.0.0.1:8000.
 ## Docker Compose
 
 ```bash
+cp .env.example .env
 cd docker
-docker compose up --build
+docker compose --env-file ../.env up --build
 ```
 
 - API: http://localhost:8000/docs  

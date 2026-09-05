@@ -1,7 +1,7 @@
 version: '3.8'
 
 # Local stack: SQLite file DB + single admin login (no Postgres, no public sign-up by default).
-# Set JWT_SECRET and ADMIN_PASSWORD_HASH in .env for any shared/public deployment.
+# From docker/: docker compose --env-file ../.env up --build
 
 services:
   backend:
@@ -9,13 +9,10 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     container_name: retainiq-backend
+    env_file:
+      - ../.env
     environment:
       - DATABASE_URL=sqlite:///./data/customer_retention.db
-      - APP_ENV=${APP_ENV:-development}
-      - ALLOW_USER_REGISTRATION=false
-      - JWT_SECRET=${JWT_SECRET:-}
-      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost}
     volumes:
       - ../backend/logs:/app/backend/logs
       - retainiq_sqlite:/app/backend/data
@@ -33,6 +30,8 @@ services:
     build:
       context: ..
       dockerfile: docker/frontend.Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     container_name: retainiq-frontend
     ports:
       - "${FRONTEND_PORT:-8080}:80"

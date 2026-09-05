@@ -1,18 +1,23 @@
 """
 Application configuration module.
-Loads settings from environment variables or a local .env file.
+Loads settings from environment variables or the repo-root `.env` file.
 """
+
+from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_FILE = _REPO_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE) if _ENV_FILE.is_file() else None,
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
 
     # Core API Configurations
