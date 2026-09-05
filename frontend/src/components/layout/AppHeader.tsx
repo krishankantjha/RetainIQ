@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import GlobalSearch from "@/components/layout/GlobalSearch";
-import { fetchModelHealth, type ModelHealth } from "@/lib/api";
+import { fetchModelHealth, fetchUploadHistory, type ModelHealth } from "@/lib/api";
 import { displayNameFromProfile, greetingForHour, greetingName, userContactEmail, userInitial } from "@/lib/format";
 import { toggleTheme, type ThemeMode } from "@/lib/theme";
 
@@ -38,6 +38,7 @@ export default function AppHeader({
   const [userOpen, setUserOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [health, setHealth] = useState<ModelHealth | null>(null);
+  const [lastUploadLabel, setLastUploadLabel] = useState<string | null>(null);
   const [greeting, setGreeting] = useState(() => greetingForHour());
 
   useEffect(() => {
@@ -55,6 +56,25 @@ export default function AppHeader({
     fetchModelHealth()
       .then(setHealth)
       .catch(() => setHealth(null));
+  }, []);
+
+  useEffect(() => {
+    fetchUploadHistory(1)
+      .then((uploads) => {
+        const latest = uploads.find((upload) => upload.status === "completed" && upload.uploaded_at);
+        if (!latest?.uploaded_at) {
+          setLastUploadLabel(null);
+          return;
+        }
+        setLastUploadLabel(
+          new Date(latest.uploaded_at).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+        );
+      })
+      .catch(() => setLastUploadLabel(null));
   }, []);
 
   useEffect(() => {
@@ -95,12 +115,6 @@ export default function AppHeader({
   };
 
   const showReportsShortcut = pathname !== "/reports";
-
-  const today = new Date().toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 backdrop-blur-xl shadow-[0_1px_0_0_color-mix(in_oklab,var(--border)_65%,transparent)]">
@@ -222,11 +236,13 @@ export default function AppHeader({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-surface-low/60 px-3 py-1.5 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">Last upload snapshot</span>
-            <span aria-hidden>·</span>
-            <span>{today}</span>
-          </div>
+          {lastUploadLabel && (
+            <div className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-surface-low/60 px-3 py-1.5 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Last upload snapshot</span>
+              <span aria-hidden>·</span>
+              <span>{lastUploadLabel}</span>
+            </div>
+          )}
 
           {showReportsShortcut && (
             <button

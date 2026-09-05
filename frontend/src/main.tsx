@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
 import App from "./App";
+import ErrorBoundary from "./components/ErrorBoundary";
 import favicon from "./assets/logo-icon.png";
 import { initTheme } from "./lib/theme";
 import "./styles.css";
@@ -22,8 +23,10 @@ if (faviconLink) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 );

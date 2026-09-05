@@ -1,6 +1,17 @@
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? "" : "http://127.0.0.1:8000");
+function resolveApiBase(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (configured !== undefined && configured !== "") {
+    return configured;
+  }
+  if (import.meta.env.DEV) {
+    return "";
+  }
+  throw new Error(
+    "VITE_API_BASE_URL is required for production builds. Set it in your hosting provider environment.",
+  );
+}
+
+const API_BASE = resolveApiBase();
 
 /** Default local admin credentials for one-click guest / demo access */
 const GUEST_USERNAME = import.meta.env.VITE_GUEST_USERNAME ?? "admin";
@@ -248,6 +259,14 @@ function parseErrorDetail(data: Record<string, unknown>): string {
 const NETWORK_ERROR =
   "Cannot reach the API. Start the backend in another terminal: cd backend; uvicorn app.main:app --reload";
 
+export const AUTH_SESSION_EXPIRED_EVENT = "retainiq:session-expired";
+
+function notifySessionExpired(): never {
+  clearSession();
+  window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
+  throw new Error("Session expired");
+}
+
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(`${API_BASE}${path}`, init);
@@ -386,8 +405,7 @@ async function authFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (response.status === 401) {
-    clearSession();
-    throw new Error("Session expired");
+    notifySessionExpired();
   }
 
   const data = await response.json().catch(() => ({}));
@@ -633,8 +651,7 @@ export async function fetchDiagnosticPlotBlobUrl(plotId: string): Promise<string
   });
 
   if (response.status === 401) {
-    clearSession();
-    throw new Error("Session expired");
+    notifySessionExpired();
   }
 
   if (!response.ok) {
@@ -681,8 +698,7 @@ export async function uploadCsv(file: File, threshold?: number): Promise<UploadA
   });
 
   if (response.status === 401) {
-    clearSession();
-    throw new Error("Session expired");
+    notifySessionExpired();
   }
 
   const data = await response.json().catch(() => ({}));
