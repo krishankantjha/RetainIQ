@@ -24,8 +24,19 @@ backend/.env
 ml/artifacts/metrics/prediction_logs.jsonl
 ml/artifacts/metrics/prediction_logs_*.jsonl
 
-# VS Code / Cursor
-.vscode/
+# React web UI
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/login.json
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+
+# Cursor / IDE
+.cursor/
+
+# TypeScript build cache
+*.tsbuildinfo
 
 # OS Files
 .DS_Store
