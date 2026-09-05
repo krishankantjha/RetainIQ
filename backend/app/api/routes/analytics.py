@@ -10,7 +10,12 @@ from app.database.session import get_db
 from app.database.models.customer import Customer
 from app.database.models.prediction import Prediction
 from app.constants.cohort_personas import COHORT_PERSONAS, get_cohort_persona_name
-from app.services.auth_service import get_current_user
+from app.services.user_scoping import (
+    AuthContext,
+    filter_customers_by_scope,
+    filter_predictions_by_scope,
+    get_auth_context,
+)
 from app.services.risk_bands import get_risk_band_thresholds
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -40,8 +45,11 @@ def _tenure_range_for_bin(label: str) -> tuple[int, int] | None:
     return ranges.get(label)
 
 
-def _customer_ids_for_campaign(db: Session, campaign: str) -> list[int]:
-    rows = db.query(Prediction.customer_id, Prediction.save_plays).all()
+def _customer_ids_for_campaign(db: Session, campaign: str, auth: AuthContext) -> list[int]:
+    rows = filter_predictions_by_scope(
+        db.query(Prediction.customer_id, Prediction.save_plays),
+        auth,
+    ).all()
     return [
         customer_id
         for customer_id, plays in rows
@@ -70,12 +78,14 @@ def _serialize_cohort_row(row) -> dict:
 @router.get("/overview")
 def get_analytics_overview(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Retrieve overview statistics for predicted customers.
     """
-    total_customers = db.query(func.count(Prediction.id)).scalar() or 0
+    total_customers = (
+        filter_predictions_by_scope(db.query(func.count(Prediction.id)), auth).scalar() or 0
+    )
     if total_customers == 0:
         return {
             "total_customers": 0,
@@ -88,11 +98,17 @@ def get_analytics_overview(
             }
         }
         
-    avg_probability = db.query(func.avg(Prediction.churn_probability)).scalar() or 0.0
+    avg_probability = (
+        filter_predictions_by_scope(db.query(func.avg(Prediction.churn_probability)), auth).scalar()
+        or 0.0
+    )
 
     total_value_at_risk = (
-        db.query(func.sum(Customer.monthly_charges))
-        .join(Prediction, Customer.id == Prediction.customer_id)
+        filter_customers_by_scope(
+            db.query(func.sum(Customer.monthly_charges))
+            .join(Prediction, Customer.id == Prediction.customer_id),
+            auth,
+        )
         .filter(Prediction.is_high_risk == True)
         .filter(
             or_(
@@ -107,20 +123,20 @@ def get_analytics_overview(
     decision_threshold, elevated_min = get_risk_band_thresholds()
 
     high_count = (
-        db.query(func.count(Prediction.id))
+        filter_predictions_by_scope(db.query(func.count(Prediction.id)), auth)
         .filter(Prediction.churn_probability >= elevated_min)
         .scalar()
         or 0
     )
     medium_count = (
-        db.query(func.count(Prediction.id))
+        filter_predictions_by_scope(db.query(func.count(Prediction.id)), auth)
         .filter(Prediction.churn_probability >= decision_threshold)
         .filter(Prediction.churn_probability < elevated_min)
         .scalar()
         or 0
     )
     low_count = (
-        db.query(func.count(Prediction.id))
+        filter_predictions_by_scope(db.query(func.count(Prediction.id)), auth)
         .filter(Prediction.churn_probability < decision_threshold)
         .scalar()
         or 0
@@ -146,12 +162,12 @@ def get_analytics_overview(
 @router.get("/save-plays")
 def get_save_plays_analytics(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Retrieve aggregates of recommended Save Play campaigns.
     """
-    predictions = db.query(Prediction.save_plays).all()
+    predictions = filter_predictions_by_scope(db.query(Prediction.save_plays), auth).all()
     
     campaign_counts = defaultdict(int)
     campaign_impacts = defaultdict(list)
@@ -184,19 +200,19 @@ def get_save_plays_analytics(
 @router.get("/personas")
 def get_persona_summary(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Behavioral cluster (K-means persona) summary across the scored cohort.
     """
-    rows = (
+    rows = filter_predictions_by_scope(
         db.query(
             Prediction.cluster,
             Prediction.churn_probability,
             Prediction.is_high_risk,
-        )
-        .all()
-    )
+        ),
+        auth,
+    ).all()
 
     if not rows:
         return {"personas": [], "total_subscribers": 0}
@@ -261,7 +277,7 @@ def get_cohort_data(
     sort_by: SortField = Query("customer_id", description="Sort column"),
     sort_dir: SortDirection = Query("asc", description="Sort direction"),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Retrieve paginated customer demographic, contract, and churn prediction details for cohort analysis.
@@ -269,7 +285,8 @@ def get_cohort_data(
     if min_churn is not None and max_churn is not None and min_churn > max_churn:
         raise HTTPException(status_code=400, detail="min_churn cannot exceed max_churn")
 
-    base_query = db.query(
+    base_query = filter_customers_by_scope(
+        db.query(
         Customer.customer_id,
         Customer.gender,
         Customer.tenure,
@@ -282,7 +299,9 @@ def get_cohort_data(
         Prediction.is_high_risk,
         Prediction.cluster,
         Prediction.predicted_at,
-    ).join(Prediction, Customer.id == Prediction.customer_id)
+        ).join(Prediction, Customer.id == Prediction.customer_id),
+        auth,
+    )
 
     if high_risk is True:
         base_query = base_query.filter(Prediction.is_high_risk.is_(True))
@@ -310,7 +329,7 @@ def get_cohort_data(
         base_query = base_query.filter(Customer.tenure <= tenure_max)
 
     if campaign:
-        matching_ids = _customer_ids_for_campaign(db, campaign)
+        matching_ids = _customer_ids_for_campaign(db, campaign, auth)
         if not matching_ids:
             return {
                 "items": [],
@@ -369,7 +388,7 @@ def get_cohort_data(
 
 @router.get("/diagnostics-metadata")
 def get_diagnostics_metadata(
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Retrieve diagnostics metadata to identify version drift in user interfaces.
@@ -427,7 +446,7 @@ def get_diagnostics_metadata(
 @router.get("/model-health")
 def get_model_health(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Retrieve model health metadata, expected performance metrics,
@@ -437,7 +456,7 @@ def get_model_health(
         from app.services.prediction_service import get_preprocessed_active_customers
         from ml.training.model_monitor import get_system_health
         
-        X_active = get_preprocessed_active_customers(db)
+        X_active = get_preprocessed_active_customers(db, user_id=auth.user_id)
         health_status = get_system_health(X_active)
         return health_status
     except Exception as e:
@@ -467,7 +486,7 @@ def _diagnostics_plots_dir() -> str:
 
 @router.get("/diagnostics-plots")
 def list_diagnostics_plots(
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """List training-time diagnostic plots available for the UI."""
     plots_dir = _diagnostics_plots_dir()
@@ -485,7 +504,7 @@ def list_diagnostics_plots(
 @router.get("/diagnostics-plots/{plot_id}")
 def get_diagnostics_plot(
     plot_id: str,
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """Serve a single diagnostic plot image from ML artifacts."""
     from fastapi.responses import FileResponse
@@ -518,21 +537,24 @@ def _tenure_bin_label(tenure: int) -> str:
 @router.get("/risk-trend")
 def get_risk_trend(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Daily aggregates of churn probability and high-risk counts by prediction date.
     """
     day_expr = func.date(Prediction.predicted_at)
     rows = (
-        db.query(
-            day_expr.label("day"),
-            func.count(Prediction.id).label("subscriber_count"),
-            func.avg(Prediction.churn_probability).label("avg_churn_probability"),
-            func.sum(case((Prediction.is_high_risk == True, 1), else_=0)).label("high_risk_count"),
+        filter_predictions_by_scope(
+            db.query(
+                day_expr.label("day"),
+                func.count(Prediction.id).label("subscriber_count"),
+                func.avg(Prediction.churn_probability).label("avg_churn_probability"),
+                func.sum(case((Prediction.is_high_risk == True, 1), else_=0)).label("high_risk_count"),
+            )
+            .group_by(day_expr)
+            .order_by(day_expr),
+            auth,
         )
-        .group_by(day_expr)
-        .order_by(day_expr)
         .all()
     )
 
@@ -553,12 +575,12 @@ def get_risk_trend(
 def get_global_drivers(
     top_n: int = Query(15, ge=5, le=30, description="Number of features to return"),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Cohort-level SHAP driver summary aggregated from stored per-subscriber explanations.
     """
-    rows = db.query(Prediction.top_drivers).all()
+    rows = filter_predictions_by_scope(db.query(Prediction.top_drivers), auth).all()
     if not rows:
         return {"drivers": [], "subscriber_count": 0}
 
@@ -597,20 +619,19 @@ def get_global_drivers(
 @router.get("/segment-matrix")
 def get_segment_matrix(
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Contract × tenure-bin matrix of average churn probability for cohort segmentation.
     """
-    rows = (
+    rows = filter_customers_by_scope(
         db.query(
             Customer.contract,
             Customer.tenure,
             Prediction.churn_probability,
-        )
-        .join(Prediction, Customer.id == Prediction.customer_id)
-        .all()
-    )
+        ).join(Prediction, Customer.id == Prediction.customer_id),
+        auth,
+    ).all()
 
     if not rows:
         return {

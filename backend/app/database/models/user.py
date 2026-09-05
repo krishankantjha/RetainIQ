@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy.orm import relationship
 from app.database.base import Base
 
 
@@ -14,3 +15,5 @@ class User(Base):
     security_answer_hash = Column(String(255), nullable=True)
     token_version = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    uploads = relationship("Upload", back_populates="owner")

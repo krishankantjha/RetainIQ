@@ -8,7 +8,14 @@ from app.database.session import get_db
 from app.core.config import settings
 from app.database.models.uploads import Upload
 from app.database.models.customer import Customer
-from app.services.auth_service import get_current_user
+from app.services.user_scoping import (
+    AuthContext,
+    filter_customers_by_scope,
+    get_auth_context,
+    get_customer_for_user,
+    get_upload_for_user,
+    scoped_uploads_query,
+)
 from app.services.prediction_service import batch_predict_and_explain, score_single_customer
 from app.services.customer_mapper import (
     customer_to_ml_record,
@@ -129,7 +136,7 @@ async def upload_csv(
     file: UploadFile = File(...),
     threshold: float | None = Query(None, ge=0.01, le=0.99, description="High-risk decision threshold"),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Upload a customer churn dataset CSV.
@@ -155,6 +162,7 @@ async def upload_csv(
             filename=file.filename,
             status="pending",
             decision_threshold=threshold,
+            user_id=auth.user_id,
         )
         db.add(upload)
         db.commit()
@@ -185,12 +193,12 @@ async def upload_csv(
 def get_customer_explain(
     customer_id: str,
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Retrieve churn predictions, SHAP drivers, and Save Plays for a specific customer.
     """
-    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    customer = get_customer_for_user(db, customer_id, auth)
     if not customer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -240,7 +248,7 @@ def score_customer(
     threshold: float | None = Query(None, ge=0.01, le=0.99, description="High-risk decision threshold"),
     replace_existing: bool = Query(True, description="Replace an existing scored subscriber with the same ID"),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Score a single subscriber from IBM Telco feature inputs and persist the result.
@@ -257,6 +265,7 @@ def score_customer(
             db,
             threshold=threshold,
             replace_existing=replace_existing,
+            user_id=auth.user_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
@@ -298,7 +307,7 @@ def score_customer(
 def simulate_prediction(
     request: SimulateRequest,
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Run a single live counterfactual simulation for edited customer inputs.
@@ -322,11 +331,7 @@ def simulate_prediction(
 
         customer = None
         if request.customer_id:
-            customer = (
-                db.query(Customer)
-                .filter(Customer.customer_id == request.customer_id)
-                .first()
-            )
+            customer = get_customer_for_user(db, request.customer_id, auth)
 
         if customer:
             baseline_record = customer_to_ml_record(customer)
@@ -352,13 +357,13 @@ def simulate_prediction(
 def list_uploads(
     limit: int = Query(20, ge=1, le=100, description="Maximum uploads to return"),
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user),
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     List recent CSV upload jobs and their processing status.
     """
     uploads = (
-        db.query(Upload)
+        scoped_uploads_query(db, auth)
         .order_by(Upload.uploaded_at.desc())
         .limit(limit)
         .all()
@@ -373,12 +378,12 @@ def list_uploads(
 def get_upload_status(
     upload_id: int,
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Query the database uploads table to check processing state.
     """
-    upload = db.query(Upload).filter(Upload.id == upload_id).first()
+    upload = get_upload_for_user(db, upload_id, auth)
     if not upload:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -391,16 +396,19 @@ def get_upload_status(
 def search_customers(
     q: str = "",
     db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_user)
+    auth: AuthContext = Depends(get_auth_context),
 ):
     """
     Search customer IDs matching a prefix query for autocomplete.
     """
     if not q:
         return []
-    results = db.query(Customer.customer_id).filter(
-        Customer.customer_id.like(f"{q}%")
-    ).limit(15).all()
+    results = (
+        filter_customers_by_scope(db.query(Customer.customer_id), auth)
+        .filter(Customer.customer_id.like(f"{q}%"))
+        .limit(15)
+        .all()
+    )
     return [r[0] for r in results]
 
 

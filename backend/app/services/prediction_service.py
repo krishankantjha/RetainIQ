@@ -317,6 +317,7 @@ def score_single_customer(
     threshold: float | None = None,
     *,
     replace_existing: bool = True,
+    user_id: int | None = None,
 ) -> tuple[Customer, Prediction]:
     """
     Score one IBM Telco subscriber, persist Customer + Prediction, and return both rows.
@@ -325,7 +326,10 @@ def score_single_customer(
     if not customer_id:
         raise ValueError("customerID is required for single-customer scoring")
 
-    existing = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    existing_query = db.query(Customer).filter(Customer.customer_id == customer_id)
+    if user_id is not None:
+        existing_query = existing_query.join(Upload).filter(Upload.user_id == user_id)
+    existing = existing_query.first()
     if existing:
         if not replace_existing:
             raise ValueError(f"Customer {customer_id} already exists in the scored cohort")
@@ -337,6 +341,7 @@ def score_single_customer(
         filename=f"single-score-{customer_id}.json",
         status="processing",
         decision_threshold=resolved_threshold,
+        user_id=user_id,
     )
     db.add(upload)
     db.commit()
@@ -363,12 +368,17 @@ def score_single_customer(
     return customer, customer.prediction
 
 
-def get_preprocessed_active_customers(db: Session) -> pd.DataFrame:
+def get_preprocessed_active_customers(
+    db: Session,
+    user_id: int | None = None,
+) -> pd.DataFrame:
     """Return a capped, preprocessed feature matrix for drift monitoring."""
     _, preprocessor_obj, encoders, _, _, _ = load_artifacts()
 
-    # Cap sample size for health-check polling.
-    customers = db.query(Customer).limit(1000).all()
+    customer_query = db.query(Customer)
+    if user_id is not None:
+        customer_query = customer_query.join(Upload).filter(Upload.user_id == user_id)
+    customers = customer_query.limit(1000).all()
     if not customers:
         return pd.DataFrame(columns=encoders["feature_names_out"])
         

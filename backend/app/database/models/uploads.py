@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Float, DateTime, CheckConstraint
+from sqlalchemy import Column, ForeignKey, Integer, String, Float, DateTime, CheckConstraint
 from sqlalchemy.orm import relationship
 from app.database.base import Base
 
@@ -18,7 +18,8 @@ class Upload(Base):
     decision_threshold = Column(Float, nullable=True)
     error_message = Column(String(500), nullable=True)
     uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
-    # Relationship to customers (cascade delete records when upload is removed)
+    owner = relationship("User", back_populates="uploads")
     customers = relationship("Customer", back_populates="upload", cascade="all, delete-orphan")
 
