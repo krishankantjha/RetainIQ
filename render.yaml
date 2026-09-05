@@ -1,0 +1,32 @@
+# Render Blueprint — RetainIQ backend
+# Dashboard deploy works without this file; it documents the expected settings.
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: retainiq-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: API_V1_STR
+        value: /api/v1
+      - key: DATABASE_URL
+        value: sqlite:///./data/customer_retention.db
+      - key: ALLOW_USER_REGISTRATION
+        value: false
+      - key: MAX_UPLOAD_SIZE_MB
+        value: 25
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:5173
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+      - key: ADMIN_USERNAME
+        value: admin
