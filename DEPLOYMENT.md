@@ -1,8 +1,6 @@
-# Deployment Guide: RetainIQ Customer Retention Platform
+# Deployment Guide: RetainIQ
 
-This guide covers the **default local stack** (SQLite + single admin) and optional environment configuration.
-
-> See **[docs/LOCAL_SETUP.md](LOCAL_SETUP.md)** for default credentials, messaging, and scope.
+Hosting, environment variables, Docker Compose, and production (Render + Vercel).
 
 ---
 
@@ -24,11 +22,49 @@ DATABASE_URL=sqlite:///./customer_retention.db
 
 ### Optional: PostgreSQL
 
-The codebase still accepts `DATABASE_URL=postgresql://...` for future scaling. Docker Compose **no longer** starts Postgres by default.
+Set `DATABASE_URL=postgresql://...` (or Render’s `postgres://...` string) if you want persistent storage across redeploys. No code changes required — only the connection string.
 
 ---
 
-## 1. Infrastructure topology (default stack)
+## Production (Render + Vercel)
+
+Split deploy used for the live portfolio demo:
+
+| Service | Platform | Role |
+|---------|----------|------|
+| Frontend | **Vercel** (`frontend/`) | React static build |
+| Backend | **Render** (Docker `backend/Dockerfile`) | FastAPI + ML |
+
+**Vercel** — root directory `frontend`, build `npm run build`, output `dist`:
+
+```env
+VITE_API_BASE_URL=https://YOUR-SERVICE.onrender.com
+```
+
+Use **Config** (not Secret) for `VITE_*` variables.
+
+**Render** — Dockerfile path `backend/Dockerfile`, health check `/health`:
+
+```env
+APP_ENV=production
+JWT_SECRET=<secure-random>
+ADMIN_PASSWORD_HASH=<bcrypt-hash>
+ALLOW_USER_REGISTRATION=true
+ALLOWED_ORIGINS=https://YOUR-APP.vercel.app,http://localhost:5173
+DATABASE_URL=sqlite:///./data/customer_retention.db
+```
+
+**SQLite on Render (default):** No extra services needed. Data lives in the container filesystem and may be **reset on redeploy** on the free tier — fine for a portfolio demo (re-upload the Telco CSV after a deploy).
+
+**Optional PostgreSQL:** If you need data to survive redeploys, add a free Postgres instance on Render, set `DATABASE_URL` to its connection string, and redeploy. The Docker entrypoint runs `alembic upgrade head` on boot. The app already supports `postgresql://` and `postgres://` URLs.
+
+See `render.yaml` in the repo root for a Blueprint reference.
+
+Keep the backend awake on Render free tier with an external ping to `/health` (e.g. UptimeRobot, 5 min interval).
+
+---
+
+## Docker Compose topology
 
 ```mermaid
 graph TD
@@ -127,9 +163,9 @@ To protect public endpoints, the backend uses a sliding-window rate limiter.
 
 The platform implements a strict SHA-256 integrity verification system. If model artifacts are regenerated, `artifacts_manifest.json` must be updated, otherwise the application server will refuse to start.
 
-### Retraining Workflow
+### Retraining workflow
 
-See **[docs/ml_pipeline.md](docs/ml_pipeline.md)** for the full v1.1 run order. Summary:
+Run from the project root (see **README.md** — Machine Learning Pipeline Execution):
 
 ```bash
 python ml/preprocessing/clean.py
