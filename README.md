@@ -1,362 +1,394 @@
-# RetainIQ — AI-Powered Customer Retention Intelligence Platform
+# RetainIQ
 
-[![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-green?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-19-blue?style=for-the-badge&logo=react&logoColor=white)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-7-purple?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![SQLite](https://img.shields.io/badge/SQLite-Default-lightgrey?style=for-the-badge&logo=sqlite&logoColor=white)](docs/LOCAL_SETUP.md)
-[![Pytest](https://img.shields.io/badge/Pytest-Passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
-[![Docker](https://img.shields.io/badge/Docker-Orchestrated-blue?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+**AI-powered customer retention platform for telecom subscribers.**
 
-RetainIQ is a modular, end-to-end machine learning platform built to predict, analyze, and mitigate **telecom subscriber churn**. It uses models trained on the IBM Telco Churn schema and translates risk signals into actionable "Save Plays" to protect Monthly Recurring Revenue (MRR).
+RetainIQ predicts who is likely to churn, explains why with SHAP, and suggests concrete retention actions — so teams can protect monthly recurring revenue instead of reacting after customers leave.
 
-> **Default setup:** SQLite + single `admin` login. Public sign-up disabled unless configured. See **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![Tests](https://img.shields.io/badge/Tests-109%20passed-brightgreen?logo=pytest)](https://docs.pytest.org/)
 
 ---
 
-## 📐 System Architecture & Data Flow
+## Why this exists
 
-### 1. High-Level Component Topology
-```mermaid
-graph TD
-    User([Browser / Client]) -->|HTTP Port 80 / 443| Nginx[Nginx Reverse Proxy]
-    Nginx -->|Port 80| React[React SPA (static)]
-    Nginx -->|Port 8000| FastAPI[FastAPI Backend Service]
-    React -->|REST Requests & Auth| FastAPI
-    FastAPI -->|Async Tasks Queue| Worker[Threadpool / Background Workers]
-    FastAPI -->|Read-Write Queries| DB[(SQLite — cohort store)]
+Telecom churn is expensive. A retention team needs three answers, not one score:
+
+1. **Who** is at risk?
+2. **Why** are they likely to leave?
+3. **What** should we do about it?
+
+RetainIQ is built around that workflow. It uses the IBM Telco Customer Churn schema, trains an ensemble model on historical data, and turns predictions into a web application that analysts and managers can actually use.
+
+---
+
+## What it does
+
+End to end, the product flow looks like this:
+
+```
+Sign in → Upload cohort CSV → Background scoring → Dashboard & at-risk list → Subscriber detail (SHAP + Save Plays) → Reports & what-if
 ```
 
-### 2. Asynchronous Cohort Ingestion Lifecycle
+| Area | What you get |
+|------|----------------|
+| **Cohort upload** | Drag-and-drop Telco-format CSV; processing runs in the background so the UI stays responsive |
+| **Dashboard** | Total subscribers, average churn risk, revenue at risk, risk bands, trends |
+| **At-risk view** | Filterable, sortable list of high-risk subscribers |
+| **Subscriber detail** | Churn probability, top SHAP drivers, recommended Save Plays, counterfactual simulations |
+| **Analytics** | Personas (K-Means segments), segment matrix, global drivers, model diagnostics |
+| **What-if** | Edit contract, tenure, or charges and see how risk changes |
+| **Single-customer scoring** | Score one subscriber from form inputs without a full upload |
+| **Executive reports** | Export-friendly summaries for stakeholders |
+
+Sample dataset: [`data/raw/Telco_Customer_Churn.csv`](data/raw/Telco_Customer_Churn.csv)
+
+---
+
+## How it is built
+
+### Application architecture
+
+```mermaid
+graph LR
+    Browser[React SPA] -->|REST + JWT| API[FastAPI]
+    API --> Worker[Background upload worker]
+    API --> DB[(SQLite cohort store)]
+    Worker --> ML[Ensemble + SHAP + personas]
+    ML --> DB
+```
+
+- **Frontend:** React 19, Vite 7, Tailwind, Recharts, Plotly
+- **Backend:** FastAPI, SQLAlchemy, Alembic, JWT auth (email sign-up in production)
+- **Database:** SQLite by default (`DATABASE_URL`); PostgreSQL supported via connection string
+- **ML:** scikit-learn ensemble (XGBoost, LightGBM, GBDT, Logistic Regression), isotonic calibration, local SHAP, K-Means personas
+- **Deploy:** Vercel (frontend) + Render (Docker backend); optional Docker Compose locally with nginx
+
+Each user only sees their own uploads and scored cohorts. On boot, the API verifies ML artifact SHA-256 hashes from `ml/artifacts/artifacts_manifest.json` and refuses to start if files are missing or tampered with.
+
+### Upload lifecycle
+
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor Developer as End User
-    participant UI as React Dashboard
-    participant API as FastAPI Server
-    participant Worker as Background Task
-    participant DB as SQL Database
+    actor User
+    participant UI as React UI
+    participant API as FastAPI
+    participant Worker as Background task
+    participant DB as Database
 
-    Developer->>UI: Uploads Customer Cohort CSV
-    UI->>API: POST /api/v1/upload (Form File)
-    API->>DB: Write Upload (Status=Processing)
-    API-->>UI: Return HTTP 200 (upload_id) immediately
-    Note over UI: Non-blocking response: UI displays spinner
-    API->>Worker: Dispatch process_upload_task(upload_id)
-    loop Background Processing
-        Worker->>Worker: Data Ingestion & Modular Checks
-        Worker->>Worker: Preprocessing & Latent projections
-        Worker->>Worker: Soft-Voting Predictions & SHAP local drivers
-        Worker->>DB: Bulk insert Customer & Prediction records
-        Worker->>DB: Update Upload (Status=Completed)
-    end
-    UI->>DB: Poll GET /api/v1/uploads/{id}/status
-    DB-->>UI: Upload Completed
-    UI->>DB: Fetch Cohort Predictions
-    DB-->>UI: Predictions list
-    UI->>Developer: Render Executive Metrics & Save Plays
+    User->>UI: Upload CSV
+    UI->>API: POST /api/v1/upload
+    API->>DB: Create upload (pending)
+    API-->>UI: upload_id
+    API->>Worker: process_upload_task
+    Worker->>Worker: Clean, feature engineer, predict, explain
+    Worker->>DB: Save customers + predictions
+    Worker->>DB: Mark upload completed
+    UI->>API: Poll upload status
+    UI->>User: Dashboard updates
 ```
 
-### 3. Machine Learning Preprocessing & Training Pipeline
+### Machine learning pipeline
+
 ```mermaid
-stateDiagram-v2
-    [*] --> RawData: data/raw/Telco_Customer_Churn.csv
-    RawData --> Cleaning: clean.py (whitespaces, blanks, casts)
-    Cleaning --> FeatureEngineering: engineer.py (commitment scores, addon counts)
-    FeatureEngineering --> ScalingEncoding: pipeline.py (StandardScaler, One-Hot)
-    ScalingEncoding --> SMOTEResampling: imbalance.py (Synthetic Oversampling)
-    SMOTEResampling --> ModelEnsemble: ensemble.py (XGBoost, LightGBM, GBDT, LR)
-    ModelEnsemble --> Calibration: calibration.py (Isotonic Probability Calibration)
-    Calibration --> manifest.json: Serialize models & manifest validation signatures
+flowchart LR
+    A[Raw Telco CSV] --> B[Cleaning]
+    B --> C[Feature engineering]
+    C --> D[Scale + encode]
+    D --> E[SMOTE on train set]
+    E --> F[Ensemble fit]
+    F --> G[Isotonic calibration]
+    G --> H[Artifacts + manifest]
 ```
 
-### 4. Local Explainer & Save Plays Decision Flow
+| Step | Module | Purpose |
+|------|--------|---------|
+| Cleaning | `ml/preprocessing/clean.py` | Whitespace, blanks, type casts |
+| Features | `ml/preprocessing/engineer.py` | Commitment scores, add-on counts, tenure bins |
+| Pipeline | `ml/preprocessing/pipeline.py` | `StandardScaler`, one-hot encoding |
+| Imbalance | `ml/preprocessing/imbalance.py` | SMOTE on training data only |
+| Training | `ml/training/ensemble.py` | Soft-voting ensemble |
+| Calibration | `ml/training/calibration.py` | Reliable probability estimates |
+| Explainability | `ml/explainability/shap_local.py` | Per-subscriber drivers and simulations |
+| Segmentation | `ml/segmentation/kmeans.py` | Behavioral personas |
+
+Training uses **SMOTE** on the training split (~26.5% churn baseline in the dataset). All reported metrics come from the **natural, un-resampled holdout test set**.
+
+### From probability to action
+
 ```mermaid
-graph TD
-    CalibratedProb[Calibrated Churn Probability] --> RiskClassification{Risk Threshold >= 0.15?}
-    RiskClassification -->|Yes| HighRisk[Classify High Risk]
-    RiskClassification -->|No| LowRisk[Classify Low Risk]
-    
-    HighRisk --> SHAPExplainer[Compute Customer SHAP Values]
-    SHAPExplainer --> IsolateDrivers[Isolate Top Churn Drivers]
-    IsolateDrivers --> MapPlays[Recommend Value-Aware Save Play Campaigns]
-    
-    MapPlays --> Database[Save Customer, Prediction, & Save Plays to Database]
-    LowRisk --> Database
+flowchart TD
+    P[Calibrated churn probability] --> T{>= 0.15?}
+    T -->|Yes| HR[High risk]
+    T -->|No| LR[Lower risk]
+    HR --> SHAP[SHAP top drivers]
+    SHAP --> SP[Save Play recommendations]
+    HR --> DB[(Persist to database)]
+    LR --> DB
 ```
 
----
+The production decision threshold is **0.15**, chosen by cost-sensitive analysis: a missed churner costs **$5**, a false-positive outreach costs **$1**. Catching more true churners matters more than maximizing raw accuracy.
 
-## ⚡ Key Feature Matrix
-
-| Feature | Capabilities | Emojis |
-| :--- | :--- | :---: |
-| **Real-Time Inference API** | Dynamic single-customer risk scoring, classification, and segment mapping. | 🧠 |
-| **Explainable AI (XAI)** | Core Local SHAP explanation engines isolating primary positive/negative churn forces. | 🔍 |
-| **Asynchronous Ingestion** | Bulk drag-and-drop CSV processing using concurrency-safe threadpool workers. | ⚡ |
-| **Prescriptive Save Plays** | Value-aware customer retention campaign suggestions mapped to unique risk profiles. | 🛡️ |
-| **Executive Dashboard** | Real-time analytics, revenue risk trackers, segment cohorts, and cohort trends. | 📊 |
-| **Data Telemetry & Drift** | Real-time telemetry monitoring input distribution shifts using Kolmogorov-Smirnov checks. | 📈 |
+Deeper feature notes: **[docs/feature_engineering.md](docs/feature_engineering.md)**
 
 ---
 
-## 📂 Repository Structure
+## Results
 
-```text
-ai-customer-retention-platform/
-├── backend/                  # FastAPI Web Server Tier
-│   ├── app/
-│   │   ├── api/              # Routers, authentication hooks, and rate limiters
-│   │   ├── core/             # Configuration managers, logging, and security
-│   │   ├── database/         # SQLAlchemy ORM schemas and Alembic configurations
-│   │   └── services/         # Core business logic (Inference, DB persistence, Ingestion)
-│   └── tests/                # Pytest unit and integration test suite
-├── frontend/                 # React + Vite SPA
-│   ├── src/                  # pages, components, lib (API client), assets
-│   ├── package.json
-│   └── vite.config.ts
-├── ml/                       # Machine Learning Engineering Tier
-│   ├── notebooks/            # Exploratory Data Analysis and modeling sandboxes
-│   ├── preprocessing/        # Pandas ETL, cleaning, engineering, and validators
-│   ├── training/             # Ensemble fitters, calibrations, and metrics validations
-│   └── artifacts/            # Serialized models, scalers, and metric assets
-│       ├── artifacts_manifest.json  # Checksum validation signatures
-│       ├── model.pkl         # Serialized Calibrated GBDT Ensemble
-│       ├── pipeline.pkl      # Preprocessing ColumnTransformer
-│       ├── encoders.pkl      # Categorical dictionaries map
-│       └── model_metadata.pkl # Model training inputs and expected features list
-├── configs/                  # Global YAML settings, features, and model constants
-├── docker/                   # Nginx reverse proxy configs and docker compose files
-│   ├── docker-compose.yml
-│   ├── frontend.Dockerfile   # React build + nginx static server
-│   └── nginx.conf
-└── data/                     # Ignored directory hosting raw and clean datasets
-```
+### Business impact (holdout test set)
 
----
+| Metric | No outreach | Standard threshold (0.528) | Cost-optimal threshold (0.15) |
+|--------|:-----------:|:--------------------------:|:-----------------------------:|
+| Recall (churners caught) | 0.0% | 48.9% | **89.8%** |
+| Accuracy | 73.5% | **80.0%** | 67.6% |
+| Total churn cost | $1,870 | $1,046 | **$609** |
+| Net savings vs baseline | $0 | $824 | **$1,261 (67.4% reduction)** |
 
-## 📊 Model Performance & Business Savings
+### Model benchmarks (holdout)
 
-By deploying the cost-sensitive decision theory model threshold sweep at `0.15` (balancing the asymmetric $5.0 cost of a False Churn Miss against the $1.0 cost of an Outreach Campaign), RetainIQ delivers a **67.4% reduction in churn-associated losses**:
+| Model | Threshold | Accuracy | ROC-AUC | F1 |
+|-------|:---------:|:--------:|:-------:|:--:|
+| **Calibrated ensemble (production)** | 0.15 | 67.6% | **84.4%** | **0.595** |
+| Logistic regression | 0.528 | 75.7% | 84.4% | 0.624 |
+| AdaBoost | 0.50 | 77.9% | 84.0% | 0.634 |
+| Gradient boosting | 0.528 | 78.5% | 84.2% | 0.607 |
+| XGBoost | 0.528 | 78.6% | 82.5% | 0.584 |
+| LightGBM | 0.528 | 78.7% | 83.3% | 0.576 |
+| Random forest | 0.528 | 77.4% | 81.2% | 0.545 |
 
-> [!NOTE]
-> **Imbalance Mitigation (SMOTE):** To address the dataset's class imbalance (~26.5% churn baseline), all models are trained on features oversampled via **SMOTE (Synthetic Minority Over-sampling Technique)** to a balanced 50/50 ratio. Evaluations are performed strictly on the natural, un-resampled holdout test set to maintain real-world validation integrity.
+**Why two thresholds?**
 
-### 1. Cost Optimization & Business Impact (Holdout Test Set)
+- **0.528 / 0.50 (F1-optimal):** Balances precision and recall; higher accuracy (~80%) but catches only ~49% of churners.
+- **0.15 (cost-optimal):** Used in production after isotonic calibration. Lower accuracy on paper, but **~90% recall** and much lower total churn cost when outreach is cheaper than losing a customer.
 
-| Metric | No Outreach (Baseline) | Standard Threshold (`0.528`) | Cost-Optimal Threshold (`0.15`) |
-| :--- | :---: | :---: | :---: |
-| **Recall (Churners Caught)** | 0.0% | 48.9% | **89.8%** (Catches ~90%) |
-| **Operational Accuracy** | 73.5% | **80.0%** | 67.6% |
-| **Total Churn Cost** | $1,870.0 | $1,046.0 | **$609.0** |
-| **Net Financial Savings** | $0.0 | $824.0 | **$1,261.0** (**67.4% cost reduction**) |
+### SMOTE comparison (ensemble, holdout)
 
-### 2. Algorithm Performance Benchmarks
+| Configuration | Threshold | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|---------------|:---------:|:--------:|:---------:|:------:|:--:|:-------:|
+| With SMOTE (production) | 0.15 | 67.6% | 44.5% | **89.8%** | 0.595 | 84.0% |
+| Without SMOTE | 0.15 | 69.1% | 45.7% | 88.2% | 0.602 | 84.1% |
+| With SMOTE (production) | 0.50 | **80.1%** | **65.6%** | 52.9% | 0.586 | 84.0% |
+| Without SMOTE | 0.50 | 79.7% | 64.7% | 51.9% | 0.576 | 84.1% |
 
-| Model Family | Operational Threshold | Holdout Accuracy | Holdout ROC-AUC | Holdout F1-Score |
-| :--- | :---: | :---: | :---: | :---: |
-| **Calibrated Ensemble (GBDT)** | `0.15` | 67.6% | **84.4%** | **0.595** (High Recall focus) |
-| **Logistic Regression** | `0.528` | 75.7% | 84.4% | 0.624 |
-| **AdaBoost** | `0.50` | 77.9% | 84.0% | 0.634 |
-| **Gradient Boosting** | `0.528` | 78.5% | 84.2% | 0.607 |
-| **XGBoost** | `0.528` | 78.6% | 82.5% | 0.584 |
-| **LightGBM** | `0.528` | 78.7% | 83.3% | 0.576 |
-| **Random Forest** | `0.528` | 77.4% | 81.2% | 0.545 |
+At 0.15, SMOTE adds **+1.6% recall** — more churners caught, which maps directly to revenue protection.
+
+### Evaluation plots
+
+Artifacts live in `ml/artifacts/plots/`:
+
+| Plot | What it shows |
+|------|----------------|
+| SHAP summary | Global feature importance (contract, charges, fiber, etc.) |
+| Calibration curve | Predicted vs actual churn rates |
+| Threshold sweep | Business cost by probability cutoff; minimum near 0.15 |
+| Confusion matrix | Counts at the operational threshold |
+| ROC / PR curves | Discrimination and precision–recall trade-offs |
+
+![SHAP Global Summary](ml/artifacts/plots/shap_summary.png)
+
+![Calibration Curve](ml/artifacts/plots/calibration_curve.png)
+
+![Threshold Sweep](ml/artifacts/plots/threshold_sweep.png)
+
+![Confusion Matrix](ml/artifacts/plots/confusion_matrix.png)
 
 ---
 
-### 3. Understanding the Benchmarks & Operating Points
+## Live deployment
 
-#### Why are there different decision thresholds?
-* **F1-Optimal Threshold (`0.528` / `0.50`):** This represents the default standard threshold optimized to maximize mathematical classification metrics (balancing Precision and Recall equally). While this yields a higher raw accuracy (~80%), it misses nearly half of the churners (Recall is only ~48.9%).
-* **Cost-Optimal Threshold (`0.15`):** Lowered threshold used exclusively on our calibrated model. By utilizing **Isotonic Probability Calibration**, we map raw scores to true probability estimates, enabling the cost-optimal decision boundary (`0.15`). This prioritizes catching churners (**Recall ~89.8%**) to minimize overall business losses (since a missed churner is 5x more costly than a false-positive campaign outreach).
+| Service | URL |
+|---------|-----|
+| **Web app** | https://retainiq-tan.vercel.app |
+| **API health** | https://retainiq-api-zzu9.onrender.com/health |
 
-#### What is the impact of SMOTE resampling?
-Oversampling the minority churn class with SMOTE before training provides a consistent metric lift across the standard classification baseline. Below is the comparative validation of our GBDT Ensemble model on the natural holdout test set with and without SMOTE applied:
+Create an account with your email, upload a Telco-format CSV, then open **At-risk** or the **Dashboard**. OpenAPI docs (`/api/v1/docs`) are available when running the API locally; they are disabled in production for security.
 
-| Configuration | Threshold | Accuracy | Precision | Recall | F1-Score | ROC-AUC |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **With SMOTE (Production)** | `0.15` (Cost-Optimal) | 67.6% | 44.5% | **89.8%** | 0.595 | 84.0% |
-| **Without SMOTE (Baseline)** | `0.15` (Cost-Optimal) | 69.1% | 45.7% | 88.2% | 0.602 | 84.1% |
-| | | | | | | |
-| **With SMOTE (Production)** | `0.50` (Standard) | **80.1%** | **65.6%** | **52.9%** | **0.586** | 84.0% |
-| **Without SMOTE (Baseline)** | `0.50` (Standard) | 79.7% | 64.7% | 51.9% | 0.576 | 84.1% |
-
-* **At Standard Threshold (`0.50`):** SMOTE increases all metrics simultaneously, yielding a **+1.0% Recall** boost and a **+1.0% F1-Score** boost.
-* **At Cost-Optimal Threshold (`0.15`):** SMOTE drives a **+1.6% Recall** improvement (catching more churners), which translates directly to greater revenue protection and net business savings.
+Hosting details: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 
 ---
 
-## 🖼️ Model Evaluation Plots & Visualizations
+## Quick start
 
-The generated evaluation metrics are serialized inside the `ml/artifacts/plots/` directory:
+**Prerequisites:** Python 3.10+, Node.js 20+, Git.
 
-* **Global Feature Importance (SHAP)**: Summarizes the top drivers (like contract type, monthly charges, and fiber optic subscriptions) pushing customers towards churn.
-  ![SHAP Global Summary](ml/artifacts/plots/shap_summary.png)
-  
-* **Probability Reliability Curve**: Visualizes model confidence calibration against actual frequencies.
-  ![Reliability Curve](ml/artifacts/plots/calibration_curve.png)
-  
-* **Cost Optimization Sweep**: Plots total business costs across probability thresholds to identify the absolute savings minimum at `0.15`.
-  ![Threshold Sweep](ml/artifacts/plots/threshold_sweep.png)
-  
-* **Holdout Confusion Matrix**: Captures model counts at the active operational threshold.
-  ![Confusion Matrix](ml/artifacts/plots/confusion_matrix.png)
-
----
-
-## 🚀 Local Quick-Start Guide
-
-### Prerequisites
-* **Python 3.10+** installed.
-* **Git** installed.
-
-### 1. Initialize virtual environment and install packages
-Run the setup script from the project root directory. This script will automatically create a virtual environment, upgrade pip, and install all required packages:
 ```bash
-# On Linux / macOS / Git Bash
-./scripts/setup.sh
+git clone https://github.com/krishankantjha/ai-customer-retention-platform.git
+cd ai-customer-retention-platform
+cp .env.example .env
+./scripts/setup.sh          # optional: Python venv + dependencies
+cd backend && alembic upgrade head && cd ..
 ```
 
-### 2. Configure Environment Variables
-Copy `.env.example` to `.env` in the **project root** (one file for backend, frontend, and Docker).
+**Backend** (from `backend/`):
 
-**Default login** (`APP_ENV=development`, default dev hash):
-- Username: `admin`
-- Password: `password`
-
-Set `ALLOW_USER_REGISTRATION=false` (default) for a single admin account.
-
-```env
-APP_NAME="RetainIQ API"
-JWT_SECRET="your-secure-random-token-here"
-ALLOW_USER_REGISTRATION=false
-DATABASE_URL="sqlite:///./customer_retention.db"
-```
-
-### ⚙️ Environment Configuration Schema
-
-| Variable | Description | Default | Requirements |
-| :--- | :--- | :---: | :---: |
-| `DATABASE_URL` | SQLAlchemy connection string (SQLite default) | `sqlite:///./customer_retention.db` | Required |
-| `ALLOW_USER_REGISTRATION` | Public sign-up endpoint | `false` | Recommended |
-| `JWT_SECRET` | Secret key used to sign client credentials tokens | *None* | Required |
-| `APP_NAME` | Global application name match for pytest checks | `"RetainIQ API"` | Required |
-| `DEBUG` | Enables verbose console printing | `False` | Optional |
-| `LOG_LEVEL` | Logging filtering threshold (INFO, DEBUG, WARNING) | `INFO` | Optional |
-
-### 3. Run Database Migrations
-Initialize your local database schemas using Alembic migrations:
 ```bash
-cd backend
-# Activate virtual environment
-source ../venv/Scripts/activate # Windows Git Bash
-# source ../venv/bin/activate   # Linux/macOS
-
-# Apply migrations
-alembic upgrade head
-```
-
-### 4. Boot Up the Applications
-
-#### Launch the FastAPI API Server:
-```bash
-# Inside the backend/ directory
 uvicorn app.main:app --reload
 ```
-* **API Documentation (Swagger)**: Open [http://localhost:8000/docs](http://localhost:8000/docs)
-* **API Redoc**: Open [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-#### Launch the React UI:
+**Frontend** (from `frontend/`):
+
 ```bash
-# From repo root — ensure .env exists (cp .env.example .env)
-cd frontend
 npm install
 npm run dev
 ```
-* **UI Interface**: Open [http://localhost:5173](http://localhost:5173)
+
+| | URL |
+|---|-----|
+| UI | http://localhost:5173 |
+| API docs | http://localhost:8000/docs |
+
+Set `VITE_API_BASE_URL=http://127.0.0.1:8000` in the root `.env` for local development.
+
+**Default login** when `APP_ENV=development`: `admin` / `password`  
+Set `ALLOW_USER_REGISTRATION=true` to enable public sign-up (used on the live deployment).
+
+**Docker Compose** (nginx + frontend + backend): see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+
+### Environment variables
+
+One `.env` at the repo root feeds backend, frontend, and Docker.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | SQLAlchemy connection string | `sqlite:///./customer_retention.db` |
+| `JWT_SECRET` | Signs auth tokens | Required in production |
+| `ADMIN_PASSWORD_HASH` | Bcrypt hash for admin login | Required in production |
+| `ALLOW_USER_REGISTRATION` | Public sign-up endpoint | `false` |
+| `ALLOWED_ORIGINS` | CORS origins (comma-separated) | localhost dev URLs |
+| `VITE_API_BASE_URL` | Frontend → API base URL | empty in dev (Vite proxy) |
+| `APP_ENV` | `development` / `production` | `development` |
+| `MAX_UPLOAD_SIZE_MB` | CSV upload size cap | `25` |
 
 ---
 
-## ⚡ Machine Learning Pipeline Execution
+## Repository structure
 
-Developers can trigger preprocessing pipelines, hyperparameter tuning, segmentation model retraining, and statistics validations using these commands from the project root:
-
-* **Ingestion ETL & Pipelines**: Re-run cleaning, feature scaling, SMOTE balance, and exports `pipeline.pkl`:
-  ```bash
-  python ml/preprocessing/pipeline.py
-  ```
-* **Autoencoder Training**: Retrains PyTorch compression networks to reduce continuous dimensions down to 16:
-  ```bash
-  python ml/segmentation/train_autoencoder.py
-  ```
-* **K-Means Clustering**: Clusters latent customer coordinates into risk cohorts and exports `kmeans_personas.md`:
-  ```bash
-  python ml/segmentation/kmeans.py
-  ```
-* **Calibrated Ensemble Retraining**: Fits XGBoost, LightGBM, GBDT, and Logistic Regression models and exports `model_ensemble.pkl`:
-  ```bash
-  python ml/training/ensemble.py
-  ```
-* **Cost Sweeps & Decision Threshold**: sweep probability threshold against False Negative/False Positive ratios:
-  ```bash
-  python ml/training/threshold.py
-  ```
-* **Inference Telemetry Drift**: Evaluates statistical drift on production logs database tables:
-  ```bash
-  python ml/training/model_monitor.py
-  ```
+```text
+RetainIQ/
+├── backend/                 # FastAPI API, auth, upload, analytics
+│   ├── app/api/             # Route handlers
+│   ├── app/services/        # Inference, ingestion, scoping
+│   ├── app/database/        # SQLAlchemy models + Alembic
+│   └── tests/               # API and integration tests
+├── frontend/                # React + Vite SPA
+├── ml/                      # Preprocessing, training, explainability
+│   ├── preprocessing/
+│   ├── training/
+│   ├── explainability/
+│   ├── segmentation/
+│   └── artifacts/           # Models, encoders, plots, manifest
+├── configs/                 # YAML model and feature config
+├── docker/                  # docker-compose.yml, nginx
+├── data/raw/                # Sample Telco CSV
+├── tests/                   # Cross-cutting tests (ML, security)
+├── DEPLOYMENT.md
+└── docs/feature_engineering.md
+```
 
 ---
 
-## 🔌 API Endpoints Reference
+## Retrain and ML commands
 
-| Method | Endpoint | Description | Auth Required | Rate Limit |
-| :--- | :--- | :--- | :---: | :---: |
-| `POST` | `/api/v1/auth/register` | User account registration | No | — |
-| `POST` | `/api/v1/auth/login` | Credentials token generation (OAuth2) | No | 10 / min |
-| `POST` | `/api/v1/upload` | Cohort CSV dataset async ingestion | Yes | 60 / min |
-| `GET` | `/api/v1/uploads` | Ingestion status listing | Yes | — |
-| `GET` | `/api/v1/customers` | Query paginated customer lists | Yes | — |
-| `GET` | `/api/v1/customers/{id}/explain` | Compute local customer SHAP Save Plays | Yes | 60 / min |
-| `GET` | `/api/v1/analytics/drift` | Get Kolmogorov-Smirnov feature drift statistics | Yes | — |
-| `GET` | `/health` | In-memory server health check status | No | — |
+Run from the project root:
 
----
-
-## 🧪 Testing and Coverage Commands
-
-Run the full testing framework locally to ensure system stability across endpoints and ML structures:
 ```bash
-# From the project root folder
+# Preprocessing pipeline → pipeline.pkl
+python ml/preprocessing/pipeline.py
+
+# K-Means personas → kmeans artifacts
+python ml/segmentation/kmeans.py
+
+# Ensemble training → ensemble model artifacts
+python ml/training/ensemble.py
+
+# Threshold / cost sweep
+python ml/training/threshold.py
+
+# Drift monitoring utilities
+python ml/training/model_monitor.py
+
+# Autoencoder (optional segmentation prep)
+python ml/segmentation/train_autoencoder.py
+```
+
+After retraining, update `ml/artifacts/artifacts_manifest.json` checksums or let the training scripts regenerate them.
+
+---
+
+## API reference
+
+Base path: `/api/v1`  
+Auth: `Authorization: Bearer <token>` unless noted.
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|:----:|
+| `POST` | `/auth/register` | Create account | No |
+| `POST` | `/auth/login` | Get JWT (OAuth2 form) | No |
+| `GET` | `/auth/me` | Current user profile | Yes |
+| `PATCH` | `/auth/me` | Update display name | Yes |
+| `POST` | `/auth/change-password` | Change password | Yes |
+| `POST` | `/upload` | Upload cohort CSV (async) | Yes |
+| `GET` | `/uploads` | List recent uploads | Yes |
+| `GET` | `/uploads/{id}/status` | Upload processing status | Yes |
+| `GET` | `/customers/search` | Autocomplete customer IDs | Yes |
+| `GET` | `/customers/{id}/explain` | SHAP + Save Plays + simulations | Yes |
+| `POST` | `/predict/score` | Score single subscriber | Yes |
+| `POST` | `/predict/simulate` | What-if probability | Yes |
+| `GET` | `/analytics/overview` | Dashboard KPIs | Yes |
+| `GET` | `/analytics/cohort-data` | Paginated cohort table | Yes |
+| `GET` | `/analytics/personas` | Cluster summaries | Yes |
+| `GET` | `/analytics/save-plays` | Campaign aggregates | Yes |
+| `GET` | `/analytics/risk-trend` | Risk over time | Yes |
+| `GET` | `/analytics/global-drivers` | Cohort SHAP summary | Yes |
+| `GET` | `/analytics/segment-matrix` | Contract × tenure matrix | Yes |
+| `GET` | `/analytics/model-health` | Drift and health metadata | Yes |
+| `GET` | `/analytics/diagnostics-metadata` | Model version and checksums | Yes |
+| `GET` | `/health` | Service health | No |
+
+Rate limits apply on login, upload, and explain paths (see `app/core/rate_limiter.py`).
+
+---
+
+## Testing
+
+```bash
 python -m pytest
 ```
-* **Database Verification**: Asserts database engine cascades, `is_high_risk` constraints, and table relations.
-* **API Validation**: Simulates Latin-1/UTF-8 file uploads, token validations, and endpoint authentication.
-* **Calibration Verification**: Ensures Expected Calibration Error (ECE) calculations evaluate correctly.
+
+**109 tests** cover API flows, upload → predict → explain, auth, artifact integrity, risk bands, drift utilities, and per-user data isolation.
+
+CI (GitHub Actions): Python tests + `compileall` + frontend production build.
 
 ---
 
-## 🛡️ Telemetry, Security & Guardrails
+## Security and reliability
 
-* **Logging Filter (Redaction)**:
-  An active regex-filter (`app/core/logging_config.py`) checks stdout streams and replaces credentials, charges, or user metrics with `[REDACTED]` to prevent printing sensitive information in logs.
-* **Cryptography Integrity**:
-  During server boot, the application reads the SHA-256 hashes of `pipeline.pkl`, `model.pkl`, `encoders.pkl`, and `model_metadata.pkl` inside `artifacts_manifest.json`. If a mismatch is detected, startup aborts with an `ArtifactValidationError` to prevent loading corrupted model files.
-* **Thread-Safe Memory Sweepers**:
-  API requests eviction loops clear old timestamps periodically (every 500 requests) inside the sliding-window rate-limiting middleware to prevent memory growth leaks in production.
-* **SQLite (default)**:
-  Local SQLite file stores uploaded subscriber cohorts and scores. Upload processing runs in a background worker to reduce write contention. See **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
-* **Relational Database Cascades**:
-  The persistence schema utilizes strict SQL relational cascades. Deleting any `Upload` record automatically cascades and purges all dependent customer profiles and prediction logs, maintaining DB integrity and clean storage.
-
----
-
-## 🌍 Enterprise Hosting & Cloud Deployment
-
-For Docker Compose and optional cloud hosting, see **[DEPLOYMENT.md](DEPLOYMENT.md)** and **[docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)**.
+| Topic | Implementation |
+|-------|----------------|
+| **Authentication** | JWT + bcrypt; token version bumps on password change |
+| **Data isolation** | Uploads scoped per registered user; admin sees all |
+| **Artifact integrity** | SHA-256 manifest check at startup; corrupt models block boot |
+| **Rate limiting** | Sliding window on sensitive endpoints |
+| **Log redaction** | Regex filter masks credentials and PII in logs |
+| **CORS** | Configurable `ALLOWED_ORIGINS`; validated in production |
+| **Production secrets** | `JWT_SECRET` and `ADMIN_PASSWORD_HASH` required when `APP_ENV=production` |
+| **OpenAPI** | Disabled in production |
+| **Upload processing** | Background worker; size limit via `MAX_UPLOAD_SIZE_MB` |
+| **Cascading deletes** | Removing an upload deletes its customers and predictions |
 
 ---
 
-## 📄 License
-Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Render, Vercel, Docker Compose, env vars |
+| [docs/feature_engineering.md](docs/feature_engineering.md) | Feature design and rationale |
+| [ml/artifacts/metrics/kmeans_personas.md](ml/artifacts/metrics/kmeans_personas.md) | Persona cluster definitions |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
