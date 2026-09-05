@@ -1,3 +1,11 @@
+import os
+import sys
+
+# Project root (parent of backend/) — required for configs/ and ml/ imports
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -28,7 +36,13 @@ app = FastAPI(
 
 _allowed_origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
 if settings.APP_ENV != "production":
-    for default_origin in ["http://localhost:8501", "http://127.0.0.1:8501"]:
+    for default_origin in [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost",
+    ]:
         if default_origin not in _allowed_origins:
             _allowed_origins.append(default_origin)
 
@@ -36,7 +50,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 

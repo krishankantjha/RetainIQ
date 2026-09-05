@@ -1,5 +1,5 @@
 # Production: API inference, ML serving, and training scripts (Docker backend).
-fastapi==0.111.0
+fastapi==0.115.14
 uvicorn==0.30.1
 pydantic==2.7.4
 pydantic-settings==2.3.3

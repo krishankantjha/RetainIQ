@@ -14,7 +14,7 @@ def test_login_and_token_generation(client):
         data={"username": "admin", "password": "wrongpassword"},
     )
     assert bad_login.status_code == 401
-    assert "Incorrect username or password" in bad_login.json()["detail"]
+    assert "Incorrect email or password" in bad_login.json()["detail"]
 
     good_login = client.post(
         "/api/v1/auth/login",
@@ -24,6 +24,8 @@ def test_login_and_token_generation(client):
     data = good_login.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+    assert data["username"] == "admin"
+    assert data["full_name"] == "Admin"
 
 
 def test_full_pipeline_and_endpoints(client, auth_headers, db_session):
@@ -105,7 +107,8 @@ def test_user_registration_and_authentication(client):
     reg_resp = client.post(
         "/api/v1/auth/register",
         json={
-            "username": "customuser",
+            "username": "customuser@example.com",
+            "full_name": "Custom User",
             "password": "custompassword",
             "security_question": "What is your favorite color?",
             "security_answer": "blue",
@@ -116,7 +119,8 @@ def test_user_registration_and_authentication(client):
     duplicate_reg = client.post(
         "/api/v1/auth/register",
         json={
-            "username": "customuser",
+            "username": "customuser@example.com",
+            "full_name": "Another User",
             "password": "differentpassword",
             "security_question": "What is your favorite color?",
             "security_answer": "blue",
@@ -126,7 +130,7 @@ def test_user_registration_and_authentication(client):
 
     login_resp = client.post(
         "/api/v1/auth/login",
-        data={"username": "customuser", "password": "custompassword"},
+        data={"username": "customuser@example.com", "password": "custompassword"},
     )
     assert login_resp.status_code == 200
     headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}

@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -27,9 +28,13 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[str
         return username
 
     try:
-        user = db.query(User).filter(User.username == username).first()
+        user = (
+            db.query(User)
+            .filter(func.lower(User.username) == username.strip().lower())
+            .first()
+        )
         if user and verify_password(password, user.hashed_password):
-            return username
+            return user.username
     except SQLAlchemyError as e:
         logger.error(f"Database error during authentication: {e}")
 

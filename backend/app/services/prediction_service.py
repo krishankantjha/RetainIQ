@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database.models.customer import Customer
 from app.database.models.prediction import Prediction
+from app.database.models.uploads import Upload
 
 # Resolve project root dynamically to support importing and file resolution
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -200,10 +201,7 @@ def batch_predict_and_explain(df: pd.DataFrame, db: Session, upload_id: int, thr
     # Model predictions
     y_prob = model_obj.predict_proba(X_aligned)[:, 1]
     # Resolve classification threshold dynamically (override parameter -> config)
-    if threshold is None:
-        threshold = config_loader.model.get("decision_threshold")
-        if threshold is None:
-            raise ValueError("Configuration Error: 'decision_threshold' is missing from the model configuration.")
+    threshold = resolve_decision_threshold(threshold)
     is_high_risk = (y_prob >= threshold).astype(bool)
     
     # Predict clusters by projecting preprocessed features to 16-dimensional latent space via Autoencoder
@@ -301,6 +299,68 @@ def batch_predict_and_explain(df: pd.DataFrame, db: Session, upload_id: int, thr
     db.add_all(predictions_to_insert)
     db.commit()
     return len(customers_to_insert)
+
+
+def resolve_decision_threshold(threshold: float | None) -> float:
+    """Resolve the churn decision threshold from an override or model config."""
+    if threshold is not None:
+        return float(threshold)
+    configured = config_loader.model.get("decision_threshold")
+    if configured is None:
+        raise ValueError("Configuration Error: 'decision_threshold' is missing from the model configuration.")
+    return float(configured)
+
+
+def score_single_customer(
+    ml_record: dict,
+    db: Session,
+    threshold: float | None = None,
+    *,
+    replace_existing: bool = True,
+) -> tuple[Customer, Prediction]:
+    """
+    Score one IBM Telco subscriber, persist Customer + Prediction, and return both rows.
+  """
+    customer_id = str(ml_record.get("customerID") or "").strip()
+    if not customer_id:
+        raise ValueError("customerID is required for single-customer scoring")
+
+    existing = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    if existing:
+        if not replace_existing:
+            raise ValueError(f"Customer {customer_id} already exists in the scored cohort")
+        db.delete(existing)
+        db.flush()
+
+    resolved_threshold = resolve_decision_threshold(threshold)
+    upload = Upload(
+        filename=f"single-score-{customer_id}.json",
+        status="processing",
+        decision_threshold=resolved_threshold,
+    )
+    db.add(upload)
+    db.commit()
+    db.refresh(upload)
+
+    try:
+        df = pd.DataFrame([ml_record])
+        row_count = batch_predict_and_explain(df, db, upload.id, threshold=resolved_threshold)
+        upload.status = "completed"
+        upload.row_count = row_count
+        db.commit()
+    except Exception:
+        db.rollback()
+        upload = db.query(Upload).filter(Upload.id == upload.id).first()
+        if upload:
+            upload.status = "failed"
+            upload.error_message = "Single-customer scoring failed"
+            db.commit()
+        raise
+
+    customer = db.query(Customer).filter(Customer.customer_id == customer_id).first()
+    if not customer or not customer.prediction:
+        raise RuntimeError("Scoring completed but customer prediction was not persisted")
+    return customer, customer.prediction
 
 
 def get_preprocessed_active_customers(db: Session) -> pd.DataFrame:

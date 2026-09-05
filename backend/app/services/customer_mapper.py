@@ -1,10 +1,91 @@
 """Maps Customer ORM records to ML pipeline input dictionaries."""
 
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import pandas as pd
 
 from app.database.models.customer import Customer
+
+# SimulateRequest field names (snake_case + common JSON aliases) → ML record columns.
+SIMULATION_FIELD_TO_ML_KEY: dict[str, str] = {
+    "customer_id": "customerID",
+    "customerID": "customerID",
+    "gender": "gender",
+    "senior_citizen": "SeniorCitizen",
+    "SeniorCitizen": "SeniorCitizen",
+    "partner": "Partner",
+    "Partner": "Partner",
+    "dependents": "Dependents",
+    "Dependents": "Dependents",
+    "tenure": "tenure",
+    "phone_service": "PhoneService",
+    "PhoneService": "PhoneService",
+    "multiple_lines": "MultipleLines",
+    "MultipleLines": "MultipleLines",
+    "internet_service": "InternetService",
+    "InternetService": "InternetService",
+    "online_security": "OnlineSecurity",
+    "OnlineSecurity": "OnlineSecurity",
+    "online_backup": "OnlineBackup",
+    "OnlineBackup": "OnlineBackup",
+    "device_protection": "DeviceProtection",
+    "DeviceProtection": "DeviceProtection",
+    "tech_support": "TechSupport",
+    "TechSupport": "TechSupport",
+    "streaming_tv": "StreamingTV",
+    "StreamingTV": "StreamingTV",
+    "streaming_movies": "StreamingMovies",
+    "StreamingMovies": "StreamingMovies",
+    "contract": "Contract",
+    "Contract": "Contract",
+    "paperless_billing": "PaperlessBilling",
+    "PaperlessBilling": "PaperlessBilling",
+    "payment_method": "PaymentMethod",
+    "PaymentMethod": "PaymentMethod",
+    "monthly_charges": "MonthlyCharges",
+    "MonthlyCharges": "MonthlyCharges",
+    "total_charges": "TotalCharges",
+    "TotalCharges": "TotalCharges",
+    "churn": "Churn",
+    "Churn": "Churn",
+}
+
+
+def simulation_edits_from_records(
+    baseline: dict[str, Any],
+    simulated: dict[str, Any],
+    *,
+    changed_ml_keys: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """Return ML-column edits that differ between baseline and simulated records."""
+    keys = changed_ml_keys if changed_ml_keys is not None else simulated.keys()
+    return {
+        key: simulated[key]
+        for key in keys
+        if key in simulated and baseline.get(key) != simulated[key]
+    }
+
+
+def merge_simulation_request(
+    baseline: dict[str, Any],
+    simulated: dict[str, Any],
+    fields_set: set[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Apply only explicitly provided simulation fields onto a baseline record.
+
+    Returns the merged record and the edit dict expected by simulate_intervention.
+    """
+    merged = dict(baseline)
+    changed_keys: list[str] = []
+    for field_name in fields_set:
+        ml_key = SIMULATION_FIELD_TO_ML_KEY.get(field_name)
+        if ml_key is None:
+            continue
+        merged[ml_key] = simulated[ml_key]
+        changed_keys.append(ml_key)
+    edits = simulation_edits_from_records(baseline, merged, changed_ml_keys=changed_keys)
+    return merged, edits
 
 
 def customer_to_ml_record(customer: Customer) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 import io
 import logging
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
@@ -9,14 +9,60 @@ from app.core.config import settings
 from app.database.models.uploads import Upload
 from app.database.models.customer import Customer
 from app.services.auth_service import get_current_user
-from app.services.prediction_service import batch_predict_and_explain
-from app.services.customer_mapper import customer_to_ml_record
+from app.services.prediction_service import batch_predict_and_explain, score_single_customer
+from app.services.customer_mapper import (
+    customer_to_ml_record,
+    merge_simulation_request,
+    simulation_edits_from_records,
+)
 from app.constants.cohort_personas import get_cohort_persona_name
 from app.schemas.prediction import CustomerExplainResponse, SimulateRequest
 
 logger = logging.getLogger("backend.app.api.routes.predict")
 
 router = APIRouter(tags=["predict"])
+
+
+def _serialize_upload(upload: Upload) -> dict:
+    return {
+        "upload_id": upload.id,
+        "filename": upload.filename,
+        "status": upload.status,
+        "row_count": upload.row_count or 0,
+        "decision_threshold": upload.decision_threshold,
+        "error_message": upload.error_message,
+        "uploaded_at": upload.uploaded_at.isoformat() if upload.uploaded_at else None,
+    }
+
+
+def _build_customer_explain_response(
+    customer: Customer,
+    prediction,
+    *,
+    customer_dict: dict | None = None,
+    simulations: list | None = None,
+) -> CustomerExplainResponse:
+    persona_name = get_cohort_persona_name(prediction.cluster)
+    return CustomerExplainResponse(
+        customer_id=customer.customer_id,
+        gender=customer.gender,
+        tenure=customer.tenure,
+        monthly_charges=customer.monthly_charges,
+        total_charges=customer.total_charges or 0.0,
+        churn_probability=prediction.churn_probability,
+        is_high_risk=prediction.is_high_risk,
+        top_drivers=prediction.top_drivers,
+        save_plays=prediction.save_plays,
+        cluster=prediction.cluster,
+        cohort_persona=persona_name,
+        segmentation={
+            "cluster_id": prediction.cluster,
+            "persona": persona_name,
+        } if prediction.cluster is not None else None,
+        simulations=simulations,
+        customer_features=customer_dict,
+        predicted_at=prediction.predicted_at,
+    )
 
 
 def process_upload_task(upload_id: int, file_bytes: bytes, threshold: float = None):
@@ -32,6 +78,8 @@ def process_upload_task(upload_id: int, file_bytes: bytes, threshold: float = No
             return
             
         upload.status = "processing"
+        if threshold is not None:
+            upload.decision_threshold = threshold
         db.commit()
         
         # Load CSV into pandas DataFrame with encoding fallbacks to prevent decode failures
@@ -79,7 +127,7 @@ def process_upload_task(upload_id: int, file_bytes: bytes, threshold: float = No
 async def upload_csv(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    threshold: float = None,
+    threshold: float | None = Query(None, ge=0.01, le=0.99, description="High-risk decision threshold"),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
@@ -105,7 +153,8 @@ async def upload_csv(
         # Initialize upload record in database
         upload = Upload(
             filename=file.filename,
-            status="pending"
+            status="pending",
+            decision_threshold=threshold,
         )
         db.add(upload)
         db.commit()
@@ -118,6 +167,7 @@ async def upload_csv(
             "upload_id": upload.id,
             "filename": upload.filename,
             "status": upload.status,
+            "decision_threshold": upload.decision_threshold,
             "message": "File upload accepted. Processing in progress."
         }
     except HTTPException:
@@ -154,8 +204,6 @@ def get_customer_explain(
             detail=f"No churn prediction found for customer {customer_id}."
         )
 
-    persona_name = get_cohort_persona_name(prediction.cluster)
-
     from app.services.prediction_service import load_artifacts
     from ml.explainability.shap_local import LocalExplainer
 
@@ -178,25 +226,71 @@ def get_customer_explain(
     except Exception as e:
         logger.error(f"Failed to generate counterfactual simulations for customer {customer_id}: {e}", exc_info=True)
 
-    return CustomerExplainResponse(
-        customer_id=customer.customer_id,
-        gender=customer.gender,
-        tenure=customer.tenure,
-        monthly_charges=customer.monthly_charges,
-        total_charges=customer.total_charges or 0.0,
-        churn_probability=prediction.churn_probability,
-        is_high_risk=prediction.is_high_risk,
-        top_drivers=prediction.top_drivers,
-        save_plays=prediction.save_plays,
-        cluster=prediction.cluster,
-        cohort_persona=persona_name,
-        segmentation={
-            "cluster_id": prediction.cluster,
-            "persona": persona_name
-        } if prediction.cluster is not None else None,
+    return _build_customer_explain_response(
+        customer,
+        prediction,
+        customer_dict=customer_dict,
         simulations=simulations,
-        customer_features=customer_dict,
-        predicted_at=prediction.predicted_at
+    )
+
+
+@router.post("/predict/score", response_model=CustomerExplainResponse)
+def score_customer(
+    request: SimulateRequest,
+    threshold: float | None = Query(None, ge=0.01, le=0.99, description="High-risk decision threshold"),
+    replace_existing: bool = Query(True, description="Replace an existing scored subscriber with the same ID"),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Score a single subscriber from IBM Telco feature inputs and persist the result.
+    """
+    if not request.customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="customerID is required for single-customer scoring",
+        )
+
+    try:
+        customer, prediction = score_single_customer(
+            request.to_ml_record(),
+            db,
+            threshold=threshold,
+            replace_existing=replace_existing,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Single-customer scoring failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Scoring error: {str(e)}",
+        ) from e
+
+    from app.services.prediction_service import load_artifacts
+    from ml.explainability.shap_local import LocalExplainer
+
+    customer_dict = customer_to_ml_record(customer)
+    simulations: list = []
+    try:
+        model_obj, preprocessor_obj, encoders_meta, metadata, explainer_obj, _ = load_artifacts()
+        local_explainer = LocalExplainer(
+            model_obj,
+            metadata["feature_names_in"],
+            explainer=explainer_obj,
+            preprocessor=preprocessor_obj,
+            encoders=encoders_meta,
+            metadata=metadata,
+        )
+        simulations = local_explainer.run_simulations(pd.DataFrame([customer_dict]))
+    except Exception as e:
+        logger.error(f"Failed to generate counterfactual simulations after scoring: {e}", exc_info=True)
+
+    return _build_customer_explain_response(
+        customer,
+        prediction,
+        customer_dict=customer_dict,
+        simulations=simulations,
     )
 
 
@@ -223,8 +317,28 @@ def simulate_prediction(
             metadata=metadata,
         )
 
-        customer_df = pd.DataFrame([request.to_ml_record()])
-        sim_prob = local_explainer.simulate_intervention(customer_df, {})
+        simulated_record = request.to_ml_record()
+        fields_set = set(request.model_fields_set)
+
+        customer = None
+        if request.customer_id:
+            customer = (
+                db.query(Customer)
+                .filter(Customer.customer_id == request.customer_id)
+                .first()
+            )
+
+        if customer:
+            baseline_record = customer_to_ml_record(customer)
+            _, edits = merge_simulation_request(
+                baseline_record, simulated_record, fields_set
+            )
+        else:
+            baseline_record = simulated_record
+            edits = simulation_edits_from_records(baseline_record, simulated_record)
+
+        customer_df = pd.DataFrame([baseline_record])
+        sim_prob = local_explainer.simulate_intervention(customer_df, edits)
         return {"simulated_probability": sim_prob}
     except Exception as e:
         logger.error(f"Failed live counterfactual simulation prediction: {e}", exc_info=True)
@@ -232,6 +346,27 @@ def simulate_prediction(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Simulation error: {str(e)}"
         )
+
+
+@router.get("/uploads")
+def list_uploads(
+    limit: int = Query(20, ge=1, le=100, description="Maximum uploads to return"),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    List recent CSV upload jobs and their processing status.
+    """
+    uploads = (
+        db.query(Upload)
+        .order_by(Upload.uploaded_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        _serialize_upload(upload)
+        for upload in uploads
+    ]
 
 
 @router.get("/uploads/{upload_id}/status")
@@ -249,14 +384,7 @@ def get_upload_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Upload with ID {upload_id} not found."
         )
-    return {
-        "upload_id": upload.id,
-        "filename": upload.filename,
-        "status": upload.status,
-        "row_count": upload.row_count or 0,
-        "error_message": upload.error_message,
-        "uploaded_at": upload.uploaded_at
-    }
+    return _serialize_upload(upload)
 
 
 @router.get("/customers/search")

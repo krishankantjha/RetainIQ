@@ -23,9 +23,9 @@ COPY --chown=appuser:appgroup backend /app/backend
 COPY --chown=appuser:appgroup ml /app/ml
 COPY --chown=appuser:appgroup configs /app/configs
 
-# Setup logs directory and adjust permissions
-RUN mkdir -p /app/backend/logs && \
-    chown -R appuser:appgroup /app/backend/logs
+# Setup logs + SQLite data directory
+RUN mkdir -p /app/backend/logs /app/backend/data && \
+    chown -R appuser:appgroup /app/backend/logs /app/backend/data
 
 # Set Python path environment variable
 ENV PYTHONPATH=/app

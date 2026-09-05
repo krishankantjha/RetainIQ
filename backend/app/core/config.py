@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD_HASH: str = ""
 
-    # Registration is disabled by default; enable explicitly for dev/demo environments.
+    # Single admin login by default. Set ALLOW_USER_REGISTRATION=true to enable public sign-up.
     ALLOW_USER_REGISTRATION: bool = False
 
     # Maximum CSV upload size in megabytes.
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./customer_retention.db"
 
     # CORS Allowed Origins
-    ALLOWED_ORIGINS: str = "http://localhost:8501,http://127.0.0.1:8501"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost"
 
     _DEV_JWT_SECRET: str = "dev-only-jwt-secret-change-me-in-production"
     _DEV_ADMIN_PASSWORD_HASH: str = (
@@ -52,8 +52,6 @@ class Settings(BaseSettings):
                 self.JWT_SECRET = self._DEV_JWT_SECRET
             if not self.ADMIN_PASSWORD_HASH:
                 self.ADMIN_PASSWORD_HASH = self._DEV_ADMIN_PASSWORD_HASH
-            if os.getenv("ALLOW_USER_REGISTRATION") is None:
-                self.ALLOW_USER_REGISTRATION = True
         return self
 
     @model_validator(mode="after")
@@ -69,7 +67,7 @@ class Settings(BaseSettings):
                         f"Origins must start with http:// or https://. "
                         f"Falling back to default localhost origins."
                     )
-                    self.ALLOWED_ORIGINS = "http://localhost:8501,http://127.0.0.1:8501"
+                    self.ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
                     break
         return self
 

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, CheckConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, CheckConstraint
 from sqlalchemy.orm import relationship
 from app.database.base import Base
 
@@ -15,6 +15,7 @@ class Upload(Base):
     filename = Column(String(255), nullable=False)
     status = Column(String(50), nullable=False, default="pending")  # pending, processing, completed, failed
     row_count = Column(Integer, nullable=True)
+    decision_threshold = Column(Float, nullable=True)
     error_message = Column(String(500), nullable=True)
     uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
