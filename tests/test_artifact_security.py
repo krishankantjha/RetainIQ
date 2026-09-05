@@ -157,10 +157,10 @@ def test_diagnostics_metadata_endpoint():
     import app.database.session as session_module
     from fastapi.testclient import TestClient
     from app.main import app
-    from app.services.auth_service import get_current_user
-    
+    from app.services.user_scoping import AuthContext, get_auth_context
+
     # Register FastAPI dependency overrides
-    app.dependency_overrides[get_current_user] = lambda: "admin"
+    app.dependency_overrides[get_auth_context] = lambda: AuthContext(username="admin", user_id=None)
     
     client = TestClient(app)
     headers = {"Authorization": "Bearer test_token"}

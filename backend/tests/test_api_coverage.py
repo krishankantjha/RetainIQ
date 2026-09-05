@@ -421,7 +421,7 @@ def test_simulate_applies_contract_edit(client, auth_headers):
 def test_model_health_endpoint(client, auth_headers, monkeypatch):
     monkeypatch.setattr(
         "app.services.prediction_service.get_preprocessed_active_customers",
-        lambda db: pd.DataFrame(),
+        lambda db, user_id=None: pd.DataFrame(),
     )
     monkeypatch.setattr(
         "ml.training.model_monitor.get_system_health",

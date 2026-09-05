@@ -144,8 +144,8 @@ def test_customer_autocomplete_search_endpoint(auth_headers, mock_db):
     from app.database.session import get_db
     app.dependency_overrides[get_db] = lambda: mock_db
     
-    # Mock database returning prefix hits
-    mock_db.query.return_value.filter.return_value.limit.return_value.all.return_value = [
+    # Mock database returning prefix hits (scoped search joins Upload before filtering)
+    mock_db.query.return_value.join.return_value.filter.return_value.limit.return_value.all.return_value = [
         ("7590-VHVEG",),
         ("7590-XXXXX",)
     ]

@@ -185,7 +185,7 @@ def test_prediction_logs_appending(tmp_path, monkeypatch):
 
 def test_model_health_api_route(monkeypatch):
     """Verify GET /api/v1/analytics/model-health route returns status and metrics."""
-    from app.services.auth_service import get_current_user
+    from app.services.user_scoping import AuthContext, get_auth_context
 
     mock_health_payload = {
         "status": "Healthy",
@@ -194,17 +194,20 @@ def test_model_health_api_route(monkeypatch):
         "drift_ratio": 0.0,
     }
 
-    monkeypatch.setattr("app.services.prediction_service.get_preprocessed_active_customers", lambda db: pd.DataFrame())
+    monkeypatch.setattr(
+        "app.services.prediction_service.get_preprocessed_active_customers",
+        lambda db, user_id=None: pd.DataFrame(),
+    )
     monkeypatch.setattr("ml.training.model_monitor.get_system_health", lambda X: mock_health_payload)
 
-    app.dependency_overrides[get_current_user] = lambda: "admin"
+    app.dependency_overrides[get_auth_context] = lambda: AuthContext(username="admin", user_id=None)
     try:
         response = client.get(
             "/api/v1/analytics/model-health",
             headers={"Authorization": "Bearer test_token"},
         )
     finally:
-        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_auth_context, None)
 
     assert response.status_code == 200
     data = response.json()
