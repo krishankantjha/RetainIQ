@@ -9,7 +9,7 @@ RetainIQ is built on public IBM Telco sample data. Upload a CSV, view churn scor
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Tests](https://img.shields.io/badge/Tests-109%20passed-brightgreen?logo=pytest)](https://docs.pytest.org/)
-[![CI](https://github.com/krishankantjha/ai-customer-retention-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/krishankantjha/ai-customer-retention-platform/actions/workflows/ci.yml)
+[![CI](https://github.com/krishankantjha/RetainIQ/actions/workflows/ci.yml/badge.svg)](https://github.com/krishankantjha/RetainIQ/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -280,8 +280,8 @@ Hosting details: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 ### Clone and set up
 
 ```bash
-git clone https://github.com/krishankantjha/ai-customer-retention-platform.git
-cd ai-customer-retention-platform
+git clone https://github.com/krishankantjha/RetainIQ.git
+cd RetainIQ
 cp .env.example .env
 ```
 
@@ -553,7 +553,7 @@ Built-in safeguards for authentication, data isolation, and artifact integrity.
 Built by **Krishan Kant Jha** — full-stack churn analytics dashboard with ML scoring, SHAP explainability, and an interactive UI on public telecom sample data.
 
 - GitHub: [@krishankantjha](https://github.com/krishankantjha)
-- Repo: [ai-customer-retention-platform](https://github.com/krishankantjha/ai-customer-retention-platform)
+- Repo: [RetainIQ](https://github.com/krishankantjha/RetainIQ)
 - Live app: [retainiq-tan.vercel.app](https://retainiq-tan.vercel.app)
 
 Questions or feedback? Open an issue on GitHub.
