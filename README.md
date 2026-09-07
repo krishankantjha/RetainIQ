@@ -93,7 +93,7 @@ Screenshots from the [live app](https://retainiq-tan.vercel.app) with the sample
 
 ### Sign in
 
-Landing page and authentication.
+Marketing overview, feature highlights, and sign-in form.
 
 ![RetainIQ login page](docs/screenshots/login.png)
 
@@ -105,7 +105,7 @@ Download the sample CSV, set the decision threshold, and upload a cohort.
 
 ### Dashboard
 
-Overview KPIs, churn distribution, and risk by contract type.
+Sidebar navigation, cohort KPIs, churn distribution, and risk by contract type.
 
 ![Dashboard overview](docs/screenshots/dashboard.png)
 
