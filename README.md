@@ -6,7 +6,7 @@ RetainIQ is built on public IBM Telco sample data. Upload a CSV, view churn scor
 
 [![Live App](https://img.shields.io/badge/Live-app-0070f3?style=flat-square)](https://retainiq-tan.vercel.app)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Tests](https://img.shields.io/badge/Tests-109%20passed-brightgreen?logo=pytest)](https://docs.pytest.org/)
 [![CI](https://github.com/krishankantjha/RetainIQ/actions/workflows/ci.yml/badge.svg)](https://github.com/krishankantjha/RetainIQ/actions/workflows/ci.yml)
@@ -62,7 +62,7 @@ Typical path through the dashboard:
 Sign in → Upload cohort CSV → Background scoring → Dashboard & at-risk list → Subscriber detail (SHAP + interventions) → Reports & what-if
 ```
 
-These are the main pages in the app (same names as the sidebar):
+Main app pages (sidebar navigation, plus a few linked routes):
 
 | Page | What you get |
 |------|----------------|
@@ -75,15 +75,15 @@ These are the main pages in the app (same names as the sidebar):
 | **What-if lab** | Change contract, tenure, or charges and see how risk shifts |
 | **Data explorer** | Browse the full scored cohort in a table; export CSV |
 | **Upload data** | Drag-and-drop Telco-format CSV; scoring runs in the background |
-| **Score customer** | Score one subscriber from a form without uploading a file |
+| **Score customer** | Score one subscriber from a form (linked from Upload data and What-if lab) |
 | **Subscriber detail** | Churn probability, SHAP drivers, interventions, counterfactuals |
-| **Settings** | Update display name and change password |
+| **Settings** | Update display name and change password (user menu in the sidebar) |
 
 Other UI bits worth knowing:
 
 - **Global search** in the header — jump to a page or find a customer ID
 - **Dark / light theme** on the login page
-- **Guest login** — try the app without creating an account (when enabled)
+- **Guest login** — available in **local development only** (`Continue as guest` on the login page)
 
 ---
 
@@ -240,7 +240,7 @@ All numbers below come from the **holdout test split** on the IBM Telco dataset.
 
 | Model | Threshold | Accuracy | ROC-AUC | F1 |
 |-------|:---------:|:--------:|:-------:|:--:|
-| **Calibrated ensemble (default model)** | 0.15 | 67.6% | **84.4%** | **0.595** |
+| **Calibrated ensemble (default model)** | 0.15 | 67.6% | **84.0%** | **0.595** |
 | Logistic regression | 0.528 | 75.7% | 84.4% | 0.624 |
 | AdaBoost | 0.50 | 77.9% | 84.0% | 0.634 |
 | Gradient boosting | 0.528 | 78.5% | 84.2% | 0.607 |
@@ -295,7 +295,7 @@ Public hosted instance — same codebase as this repository.
 | **Dashboard (frontend)** | https://retainiq-tan.vercel.app |
 | **API health check** | https://retainiq-api-zzu9.onrender.com/health |
 
-Sign up with an email, upload the sample Telco CSV, then open **At-risk subscribers** or the **Dashboard**.
+Sign up with an email, upload the sample Telco CSV (download it from the dashboard empty state or **Upload data**), then open **At-risk subscribers** or the **Dashboard**.
 
 **Heads up:** the hosted backend uses SQLite on Render's free tier. Uploaded data can be **wiped when the service redeploys**. If the dashboard is empty, sign in and upload the sample CSV again.
 
@@ -354,7 +354,7 @@ npm run dev
 | | URL |
 |---|-----|
 | UI | http://localhost:5173 |
-| API docs | http://localhost:8000/docs |
+| API docs | http://localhost:8000/api/v1/docs |
 
 Set `VITE_API_BASE_URL=http://127.0.0.1:8000` in the root `.env` if the frontend cannot reach the API.
 
@@ -371,9 +371,9 @@ When `APP_ENV=development`, you can sign in as:
 - **Email / username:** `admin`
 - **Password:** `password`
 
-### Guest access
+### Guest access (local development only)
 
-The login page has a **Continue as guest** button. It uses `VITE_GUEST_USERNAME` and `VITE_GUEST_PASSWORD` from `.env` (defaults match the admin account above).
+The login page shows a **Continue as guest** button when you run the frontend with `npm run dev`. It is **not shown on the public Vercel build**. Credentials come from `VITE_GUEST_USERNAME` and `VITE_GUEST_PASSWORD` in `.env` (defaults match the admin account above).
 
 ### Sign up
 
@@ -389,7 +389,7 @@ This uses `GET /auth/security-question/{username}` and `POST /auth/reset-passwor
 
 ### Settings
 
-After sign-in, open **Settings** from the sidebar to change your display name or password.
+After sign-in, open **Settings** from the user menu at the bottom of the sidebar to change your display name or password.
 
 ---
 
@@ -419,8 +419,8 @@ One `.env` at the repo root feeds the backend, frontend, and Docker. Copy from [
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VITE_API_BASE_URL` | Frontend → API base URL | empty in dev (Vite proxy) |
-| `VITE_GUEST_USERNAME` | Guest login username | `admin` |
-| `VITE_GUEST_PASSWORD` | Guest login password | `password` |
+| `VITE_GUEST_USERNAME` | Guest login username (local dev only) | `admin` |
+| `VITE_GUEST_PASSWORD` | Guest login password (local dev only) | `password` |
 
 ### Docker Compose ports
 
@@ -442,22 +442,25 @@ RetainIQ/
 │   ├── app/database/        # SQLAlchemy models + Alembic
 │   └── tests/               # API and integration tests
 ├── frontend/                # React + Vite SPA
+│   └── public/sample/       # Sample Telco CSV for in-app download
 ├── ml/                      # Preprocessing, training, explainability
 │   ├── preprocessing/
 │   ├── training/
 │   ├── explainability/
 │   ├── segmentation/
 │   └── artifacts/           # Models, encoders, plots, manifest
+├── docs/
+│   ├── screenshots/         # README UI tour images
+│   └── feature_engineering.md
 ├── configs/                 # YAML model and feature config
 ├── docker/                  # docker-compose.yml, nginx
-├── data/raw/                # Sample Telco CSV
+├── data/raw/                # Sample Telco CSV (training source)
 ├── tests/                   # Cross-cutting tests (ML, security)
 ├── scripts/                 # setup.sh, manifest helper
 ├── .devcontainer/           # GitHub Codespaces / Dev Container
 ├── .github/workflows/       # CI (pytest + frontend build)
 ├── render.yaml              # Render blueprint for the API
 ├── DEPLOYMENT.md
-├── docs/feature_engineering.md
 └── LICENSE
 ```
 
