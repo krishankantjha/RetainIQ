@@ -288,19 +288,6 @@ function isRememberedSession(): boolean {
   return resolveAuthStorage() === localStorage;
 }
 
-export function getRememberedEmail(): string {
-  return (
-    localStorage.getItem(REMEMBER_EMAIL_KEY) ??
-    localStorage.getItem(REMEMBER_USERNAME_KEY) ??
-    ""
-  );
-}
-
-export function setRememberedEmail(email: string): void {
-  localStorage.setItem(REMEMBER_EMAIL_KEY, email);
-  localStorage.removeItem(REMEMBER_USERNAME_KEY);
-}
-
 export function clearRememberedEmail(): void {
   localStorage.removeItem(REMEMBER_EMAIL_KEY);
   localStorage.removeItem(REMEMBER_USERNAME_KEY);
@@ -371,12 +358,7 @@ export function setSession(
   storage.setItem(TOKEN_KEY, token);
   storage.setItem(USER_KEY, username);
   setFullName(fullName ?? null, remember);
-
-  if (remember) {
-    setRememberedEmail(username);
-  } else {
-    clearRememberedEmail();
-  }
+  clearRememberedEmail();
 }
 
 export function clearSession(): void {
@@ -386,6 +368,7 @@ export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(FULL_NAME_KEY);
+  clearRememberedEmail();
 }
 
 export function isAuthenticated(): boolean {

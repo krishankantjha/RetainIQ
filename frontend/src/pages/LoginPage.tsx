@@ -23,7 +23,7 @@ import backgroundWebp2x from "@/assets/background@2x.webp";
 import LogoWordmark from "@/components/LogoWordmark";
 import AuthSelect from "@/components/AuthSelect";
 import {
-  getRememberedEmail,
+  clearRememberedEmail,
   getSecurityQuestion,
   guestLogin,
   isValidEmail,
@@ -74,7 +74,6 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,11 +93,7 @@ export default function LoginPage() {
   const [guestLoading, setGuestLoading] = useState(false);
 
   useEffect(() => {
-    const saved = getRememberedEmail();
-    if (saved) {
-      setEmail(saved);
-      setRememberMe(true);
-    }
+    clearRememberedEmail();
   }, []);
 
   const setThemeMode = (mode: ThemeMode) => {
@@ -122,7 +117,7 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await login(email, password, rememberMe);
+      await login(email, password, false);
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -520,7 +515,7 @@ export default function LoginPage() {
                 )}
 
                 {mode === "signin" ? (
-                  <form className="mt-5 space-y-5" onSubmit={onSignIn}>
+                  <form className="mt-5 space-y-5" onSubmit={onSignIn} autoComplete="off">
                     {error && (
                       <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-red-300">
                         {error}
@@ -534,7 +529,11 @@ export default function LoginPage() {
                         <input
                           id="email"
                           type="email"
-                          autoComplete="email"
+                          name="retainiq-signin-email"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="Enter your email"
@@ -575,16 +574,6 @@ export default function LoginPage() {
                         </button>
                       </div>
                     </div>
-
-                    <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={rememberMe}
-                        onChange={(e) => setRememberMe(e.target.checked)}
-                        className="h-4 w-4 rounded border-border accent-primary"
-                      />
-                      Remember email on this device
-                    </label>
 
                     <button
                       type="submit"
