@@ -561,6 +561,18 @@ export async function fetchOverview(): Promise<Overview> {
   return authFetch<Overview>("/api/v1/analytics/overview");
 }
 
+export interface ChartSummaries {
+  total_subscribers: number;
+  total_mrr: number;
+  histogram: Array<{ label: string; count: number; min: number; max: number }>;
+  contract_risk: Array<{ contract: string; high: number; medium: number; low: number; total: number }>;
+  tenure_risk: Array<{ label: string; highRate: number; total: number; high: number }>;
+}
+
+export async function fetchChartSummaries(): Promise<ChartSummaries> {
+  return authFetch<ChartSummaries>("/api/v1/analytics/chart-summaries");
+}
+
 export async function fetchSavePlays(): Promise<SavePlayStat[]> {
   return authFetch<SavePlayStat[]>("/api/v1/analytics/save-plays");
 }

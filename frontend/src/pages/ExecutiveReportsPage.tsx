@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Download, DollarSign, FileText, ShieldAlert, TrendingUp, Users } from "lucide-react";
 
@@ -9,13 +9,13 @@ import MetricCard from "@/components/dashboard/MetricCard";
 import SavePlaysTable from "@/components/save-plays/SavePlaysTable";
 import EmptyCohortBanner from "@/components/dashboard/EmptyCohortBanner";
 import { ChartGridSkeleton, MetricCardsSkeleton } from "@/components/ui/PageSkeleton";
-import { buildChurnHistogram, buildContractRiskStacked, buildTenureRiskBins } from "@/lib/aggregates";
+import type { ContractRiskRow, HistogramBin, TenureRiskRow } from "@/lib/aggregates";
 import { actionableHighCount } from "@/lib/riskBands";
 import {
   fetchAllCohortData,
+  fetchChartSummaries,
   fetchOverview,
   fetchSavePlays,
-  type CohortRow,
   type Overview,
   type SavePlayStat,
 } from "@/lib/api";
@@ -26,9 +26,13 @@ import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 export default function ExecutiveReportsPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [chartsLoading, setChartsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [cohortRows, setCohortRows] = useState<CohortRow[]>([]);
+  const [histogram, setHistogram] = useState<HistogramBin[]>([]);
+  const [contractRisk, setContractRisk] = useState<ContractRiskRow[]>([]);
+  const [tenureRisk, setTenureRisk] = useState<TenureRiskRow[]>([]);
+  const [totalMrr, setTotalMrr] = useState(0);
   const [savePlays, setSavePlays] = useState<SavePlayStat[]>([]);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -38,25 +42,36 @@ export default function ExecutiveReportsPage() {
 
     async function load() {
       setLoading(true);
+      setChartsLoading(false);
       setError(null);
 
       try {
         const overviewData = await fetchOverview();
         if (cancelled) return;
         setOverview(overviewData);
+        setLoading(false);
 
-        if (overviewData.total_customers > 0) {
-          const [cohortData, playsData] = await Promise.all([
-            fetchAllCohortData(),
-            fetchSavePlays(),
-          ]);
-          if (cancelled) return;
-          setCohortRows(cohortData);
-          setSavePlays(playsData);
-        } else {
-          setCohortRows([]);
+        if (overviewData.total_customers === 0) {
+          setHistogram([]);
+          setContractRisk([]);
+          setTenureRisk([]);
+          setTotalMrr(0);
           setSavePlays([]);
+          return;
         }
+
+        setChartsLoading(true);
+        const [summaries, playsData] = await Promise.all([
+          fetchChartSummaries(),
+          fetchSavePlays(),
+        ]);
+        if (cancelled) return;
+
+        setHistogram(summaries.histogram);
+        setContractRisk(summaries.contract_risk);
+        setTenureRisk(summaries.tenure_risk);
+        setTotalMrr(summaries.total_mrr);
+        setSavePlays(playsData);
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : "Failed to load executive report";
@@ -65,8 +80,9 @@ export default function ExecutiveReportsPage() {
           return;
         }
         setError(message);
+        setLoading(false);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setChartsLoading(false);
       }
     }
 
@@ -75,15 +91,6 @@ export default function ExecutiveReportsPage() {
       cancelled = true;
     };
   }, [navigate]);
-
-  const histogram = useMemo(() => buildChurnHistogram(cohortRows), [cohortRows]);
-  const contractRisk = useMemo(() => buildContractRiskStacked(cohortRows), [cohortRows]);
-  const tenureRisk = useMemo(() => buildTenureRiskBins(cohortRows), [cohortRows]);
-
-  const totalMrr = useMemo(
-    () => cohortRows.reduce((sum, row) => sum + row.monthly_charges, 0),
-    [cohortRows],
-  );
 
   const exportPdf = () => {
     if (!overview) return;
@@ -98,6 +105,7 @@ export default function ExecutiveReportsPage() {
   const exportReport = async () => {
     setExporting(true);
     try {
+      const cohortRows = await fetchAllCohortData();
       const stamp = new Date().toISOString().slice(0, 10);
       downloadCohortCsv(cohortRows, `retainiq-executive-report-${stamp}.csv`);
     } finally {
@@ -192,37 +200,43 @@ export default function ExecutiveReportsPage() {
             />
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-2">
-            <ChurnHistogramChart data={histogram} />
-            <ContractRiskChart data={contractRisk} />
-          </section>
+          {chartsLoading ? (
+            <ChartGridSkeleton />
+          ) : (
+            <>
+              <section className="grid gap-6 xl:grid-cols-2">
+                <ChurnHistogramChart data={histogram} />
+                <ContractRiskChart data={contractRisk} />
+              </section>
 
-          <section className="grid gap-6 xl:grid-cols-2">
-            <TenureRiskChart data={tenureRisk} />
-            <div className="dash-card p-5">
-              <h2 className="text-base font-semibold">Risk band summary</h2>
-              <dl className="mt-4 space-y-3 text-sm">
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Low risk</dt>
-                  <dd className="font-medium">{formatNumber(risk.low)}</dd>
+              <section className="grid gap-6 xl:grid-cols-2">
+                <TenureRiskChart data={tenureRisk} />
+                <div className="dash-card p-5">
+                  <h2 className="text-base font-semibold">Risk band summary</h2>
+                  <dl className="mt-4 space-y-3 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Low risk</dt>
+                      <dd className="font-medium">{formatNumber(risk.low)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Medium risk (15–25%)</dt>
+                      <dd className="font-medium">{formatNumber(risk.medium)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Elevated (≥25%)</dt>
+                      <dd className="font-medium">{formatNumber(risk.high)}</dd>
+                    </div>
+                  </dl>
+                  <Link
+                    to="/at-risk"
+                    className="mt-4 inline-flex text-sm font-medium text-primary-soft hover:underline"
+                  >
+                    View at-risk subscribers →
+                  </Link>
                 </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Medium risk (15–25%)</dt>
-                  <dd className="font-medium">{formatNumber(risk.medium)}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Elevated (≥25%)</dt>
-                  <dd className="font-medium">{formatNumber(risk.high)}</dd>
-                </div>
-              </dl>
-              <Link
-                to="/at-risk"
-                className="mt-4 inline-flex text-sm font-medium text-primary-soft hover:underline"
-              >
-                View at-risk subscribers →
-              </Link>
-            </div>
-          </section>
+              </section>
+            </>
+          )}
 
           <div className="dash-card p-5">
             <h2 className="text-base font-semibold">Top suggested save plays</h2>

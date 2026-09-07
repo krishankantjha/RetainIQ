@@ -16,6 +16,7 @@ from app.services.user_scoping import (
     filter_predictions_by_scope,
     get_auth_context,
 )
+from app.services.chart_summaries import build_chart_summaries
 from app.services.risk_bands import get_risk_band_thresholds
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -261,6 +262,17 @@ def get_persona_summary(
         "personas": personas,
         "total_subscribers": len(rows),
     }
+
+
+@router.get("/chart-summaries")
+def get_chart_summaries(
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(get_auth_context),
+):
+    """
+    Pre-aggregated histogram and segment chart data for dashboard and reports.
+    """
+    return build_chart_summaries(db, auth)
 
 
 @router.get("/cohort-data")

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -18,18 +18,13 @@ import MetricCard from "@/components/dashboard/MetricCard";
 import ModelStatusCard from "@/components/dashboard/ModelStatusCard";
 import Tooltip from "@/components/ui/Tooltip";
 import { ChartGridSkeleton, MetricCardsSkeleton } from "@/components/ui/PageSkeleton";
+import type { ContractRiskRow, HistogramBin, TenureRiskRow } from "@/lib/aggregates";
+import { actionableHighCount } from "@/lib/riskBands";
 import {
-  buildChurnHistogram,
-  buildContractRiskStacked,
-  buildTenureRiskBins,
-} from "@/lib/aggregates";
-import { actionableHighCount, buildRiskDistribution } from "@/lib/riskBands";
-import {
-  fetchAllCohortData,
+  fetchChartSummaries,
   fetchDiagnostics,
   fetchModelHealth,
   fetchOverview,
-  type CohortRow,
   type DiagnosticsMetadata,
   type ModelHealth,
   type Overview,
@@ -40,10 +35,13 @@ import { PRODUCT_TOOLTIPS } from "@/lib/productTooltips";
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [chartsLoading, setChartsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [cohortRows, setCohortRows] = useState<CohortRow[]>([]);
+  const [histogram, setHistogram] = useState<HistogramBin[]>([]);
+  const [contractRisk, setContractRisk] = useState<ContractRiskRow[]>([]);
+  const [tenureRisk, setTenureRisk] = useState<TenureRiskRow[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsMetadata | null>(null);
   const [modelHealth, setModelHealth] = useState<ModelHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -53,33 +51,44 @@ export default function DashboardPage() {
 
     async function load() {
       setLoading(true);
+      setChartsLoading(false);
       setError(null);
       setHealthError(null);
+      setHistogram([]);
+      setContractRisk([]);
+      setTenureRisk([]);
 
       try {
         const overviewData = await fetchOverview();
         if (cancelled) return;
         setOverview(overviewData);
+        setLoading(false);
 
-        const cohortData =
-          overviewData.total_customers > 0 ? await fetchAllCohortData() : [];
-        const diagnosticsData = await fetchDiagnostics();
+        if (overviewData.total_customers === 0) {
+          setDiagnostics(null);
+          setModelHealth(null);
+          return;
+        }
 
+        setChartsLoading(true);
+        const [summaries, diagnosticsData] = await Promise.all([
+          fetchChartSummaries(),
+          fetchDiagnostics(),
+        ]);
         if (cancelled) return;
-        setCohortRows(cohortData);
+
+        setHistogram(summaries.histogram);
+        setContractRisk(summaries.contract_risk);
+        setTenureRisk(summaries.tenure_risk);
         setDiagnostics(diagnosticsData);
 
-        if (overviewData.total_customers > 0) {
-          try {
-            const healthData = await fetchModelHealth();
-            if (!cancelled) setModelHealth(healthData);
-          } catch (err) {
-            if (!cancelled) {
-              setHealthError(err instanceof Error ? err.message : "Model health unavailable");
-            }
+        try {
+          const healthData = await fetchModelHealth();
+          if (!cancelled) setModelHealth(healthData);
+        } catch (err) {
+          if (!cancelled) {
+            setHealthError(err instanceof Error ? err.message : "Model health unavailable");
           }
-        } else {
-          setModelHealth(null);
         }
       } catch (err) {
         if (cancelled) return;
@@ -89,8 +98,9 @@ export default function DashboardPage() {
           return;
         }
         setError(message);
+        setLoading(false);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setChartsLoading(false);
       }
     }
 
@@ -100,20 +110,10 @@ export default function DashboardPage() {
     };
   }, [navigate]);
 
-  const histogram = useMemo(() => buildChurnHistogram(cohortRows), [cohortRows]);
-  const contractRisk = useMemo(() => buildContractRiskStacked(cohortRows), [cohortRows]);
-  const tenureRisk = useMemo(() => buildTenureRiskBins(cohortRows), [cohortRows]);
-
   const total = overview?.total_customers ?? 0;
   const risk = overview?.risk_distribution ?? { high: 0, medium: 0, low: 0 };
-  const chartRisk = useMemo(() => buildRiskDistribution(cohortRows), [cohortRows]);
   const actionableHigh = overview?.risk_bands?.actionable_high ?? actionableHighCount(risk);
   const lowRiskShare = total > 0 ? risk.low / total : 0;
-  const tiersAligned =
-    cohortRows.length === 0 ||
-    (chartRisk.low === risk.low &&
-      chartRisk.medium === risk.medium &&
-      chartRisk.high === risk.high);
 
   return (
     <>
@@ -177,26 +177,28 @@ export default function DashboardPage() {
             <p className="text-sm text-muted-foreground">
               Low-risk share: {formatPercent(lowRiskShare, 1)} ({formatNumber(risk.low)} subscribers)
               · Elevated (≥25%): {formatNumber(risk.high)}
-              · Charts use all {formatNumber(cohortRows.length)} loaded records
-              {!tiersAligned && (
-                <span className="text-warning"> · Refresh if counts look stale</span>
-              )}
             </p>
           )}
 
-          <section className="grid gap-6 xl:grid-cols-2">
-            <ChurnHistogramChart data={histogram} />
-            <ContractRiskChart data={contractRisk} />
-          </section>
+          {chartsLoading && total > 0 && <ChartGridSkeleton />}
 
-          <section className="grid gap-6 xl:grid-cols-2">
-            <TenureRiskChart data={tenureRisk} />
-            <ModelStatusCard
-              diagnostics={diagnostics}
-              health={modelHealth}
-              healthError={healthError}
-            />
-          </section>
+          {!chartsLoading && total > 0 && (
+            <>
+              <section className="grid gap-6 xl:grid-cols-2">
+                <ChurnHistogramChart data={histogram} />
+                <ContractRiskChart data={contractRisk} />
+              </section>
+
+              <section className="grid gap-6 xl:grid-cols-2">
+                <TenureRiskChart data={tenureRisk} />
+                <ModelStatusCard
+                  diagnostics={diagnostics}
+                  health={modelHealth}
+                  healthError={healthError}
+                />
+              </section>
+            </>
+          )}
 
           {total > 0 && (
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
