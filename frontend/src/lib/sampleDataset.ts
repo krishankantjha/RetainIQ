@@ -1,5 +1,4 @@
-/** Public sample CSV shipped with the RetainIQ repository. */
-export const SAMPLE_CSV_URL =
-  "https://raw.githubusercontent.com/krishankantjha/RetainIQ/main/data/raw/Telco_Customer_Churn.csv";
+/** Sample CSV served from the frontend public folder (same origin — download works). */
+export const SAMPLE_CSV_PATH = "/sample/Telco_Customer_Churn.csv";
 
 export const SAMPLE_CSV_FILENAME = "Telco_Customer_Churn.csv";
