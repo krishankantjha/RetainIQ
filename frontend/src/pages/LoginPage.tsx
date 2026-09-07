@@ -508,13 +508,6 @@ export default function LoginPage() {
                   </button>
                 </div>
 
-                <p className="mt-4 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-left text-xs leading-relaxed text-muted-foreground">
-                  <span className="font-medium text-foreground">Getting started:</span> After you sign in,
-                  open <span className="font-medium text-foreground">Upload data</span> and upload the
-                  sample IBM Telco CSV to fill the dashboard. If charts look empty, upload the file again
-                  — hosted data may reset after a server redeploy.
-                </p>
-
                 {success && (
                   <p className="mt-5 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-300">
                     {success}
