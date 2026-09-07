@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CheckCircle2, FileUp, Loader2, UserPlus, XCircle } from "lucide-react";
+import { CheckCircle2, Download, FileUp, Loader2, UserPlus, XCircle } from "lucide-react";
 
 import UploadHistoryTable from "@/components/analytics/UploadHistoryTable";
 import {
@@ -12,6 +12,7 @@ import {
   type UploadStatus,
 } from "@/lib/api";
 import { formatNumber, formatPercent } from "@/lib/format";
+import { SAMPLE_CSV_FILENAME, SAMPLE_CSV_URL } from "@/lib/sampleDataset";
 
 const POLL_MS = 2000;
 const DEFAULT_THRESHOLD = 0.15;
@@ -127,6 +128,35 @@ export default function UploadPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      <div className="dash-card p-5 sm:p-6">
+        <h2 className="text-base font-semibold">Get started</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The dashboard stays empty until you upload a scored cohort. Use the sample file below or your
+          own IBM Telco-format CSV.
+        </p>
+        <ol className="mt-4 space-y-2 text-sm text-muted-foreground">
+          <li>
+            <span className="font-medium text-foreground">1. Download</span> the sample Telco CSV
+          </li>
+          <li>
+            <span className="font-medium text-foreground">2. Upload</span> it using the form below
+          </li>
+          <li>
+            <span className="font-medium text-foreground">3. Open Dashboard</span> once scoring finishes
+          </li>
+        </ol>
+        <a
+          href={SAMPLE_CSV_URL}
+          download={SAMPLE_CSV_FILENAME}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary-soft transition-colors hover:border-primary/60 hover:bg-primary/10"
+        >
+          <Download className="h-4 w-4" />
+          Download sample Telco CSV
+        </a>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Upload a subscriber CSV or score one account at a time.
