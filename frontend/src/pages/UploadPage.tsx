@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CheckCircle2, Download, FileUp, Loader2, UserPlus, XCircle } from "lucide-react";
+import { CheckCircle2, FileUp, Loader2, UserPlus, XCircle } from "lucide-react";
 
+import SampleCsvDownloadLink from "@/components/SampleCsvDownloadLink";
 import UploadHistoryTable from "@/components/analytics/UploadHistoryTable";
 import {
   fetchOverview,
@@ -12,7 +13,6 @@ import {
   type UploadStatus,
 } from "@/lib/api";
 import { formatNumber, formatPercent } from "@/lib/format";
-import { SAMPLE_CSV_FILENAME, SAMPLE_CSV_PATH } from "@/lib/sampleDataset";
 
 const POLL_MS = 2000;
 const DEFAULT_THRESHOLD = 0.15;
@@ -145,14 +145,10 @@ export default function UploadPage() {
             <span className="font-medium text-foreground">3. Open Dashboard</span> once scoring finishes
           </li>
         </ol>
-        <a
-          href={SAMPLE_CSV_PATH}
-          download={SAMPLE_CSV_FILENAME}
-          className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary-soft transition-colors hover:border-primary/60 hover:bg-primary/10"
-        >
-          <Download className="h-4 w-4" />
-          Download sample Telco CSV
-        </a>
+        <SampleCsvDownloadLink
+          label="Download sample Telco CSV"
+          className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary-soft transition-colors hover:border-primary/60 hover:bg-primary/10 disabled:opacity-60"
+        />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">

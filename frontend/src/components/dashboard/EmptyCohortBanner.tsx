@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
-import { Download, Upload } from "lucide-react";
+import { Upload } from "lucide-react";
 
-import { SAMPLE_CSV_FILENAME, SAMPLE_CSV_PATH } from "@/lib/sampleDataset";
+import SampleCsvDownloadLink from "@/components/SampleCsvDownloadLink";
 
 export default function EmptyCohortBanner() {
   return (
@@ -16,14 +16,7 @@ export default function EmptyCohortBanner() {
             Upload the IBM Telco sample CSV to populate metrics and charts on this page.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <a
-              href={SAMPLE_CSV_PATH}
-              download={SAMPLE_CSV_FILENAME}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-soft hover:text-foreground hover:underline underline-offset-4"
-            >
-              <Download className="h-4 w-4" />
-              Download sample CSV
-            </a>
+            <SampleCsvDownloadLink />
             <Link
               to="/upload"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-soft hover:text-foreground hover:underline underline-offset-4"
