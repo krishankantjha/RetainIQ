@@ -89,17 +89,49 @@ Other UI bits worth knowing:
 
 ## UI tour
 
-There are no screenshot files in the repo yet. The fastest way to see the UI is the [live app](https://retainiq-tan.vercel.app) or a local run (see [Quick start](#quick-start)).
+Screenshots from the [live app](https://retainiq-tan.vercel.app) with the sample Telco CSV uploaded.
 
-If you want to add images later, drop them in `docs/screenshots/` and link them here. Suggested captures:
+### Sign in
 
-| Screen | What to show |
-|--------|--------------|
-| Login | Sign-in form, guest button, theme toggle |
-| Dashboard | KPI cards and risk breakdown |
-| At-risk subscribers | Filtered table with export |
-| Subscriber detail | SHAP chart and intervention list |
-| Reports | Summary view with PDF download |
+Landing page and authentication.
+
+![RetainIQ login page](docs/screenshots/login.png)
+
+### Upload data
+
+Download the sample CSV, set the decision threshold, and upload a cohort.
+
+![Upload subscribers](docs/screenshots/upload-data.png)
+
+### Dashboard
+
+Overview KPIs, churn distribution, and risk by contract type.
+
+![Dashboard overview](docs/screenshots/dashboard.png)
+
+### At-risk subscribers
+
+Filterable list of accounts at or above the decision threshold, with CSV export.
+
+![At-risk subscribers table](docs/screenshots/at-risk-subscribers.png)
+
+### Trends
+
+Persona clusters, scoring batches, and contract × tenure heatmap.
+
+![Trends and segments](docs/screenshots/trends.png)
+
+### Reports
+
+Executive summary metrics and charts; export as PDF or CSV.
+
+![Executive reports](docs/screenshots/reports.png)
+
+### Model diagnostics
+
+Artifact verification and frozen holdout metrics from training.
+
+![Model diagnostics](docs/screenshots/model-diagnostics.png)
 
 ---
 
@@ -534,7 +566,6 @@ Built-in safeguards for authentication, data isolation, and artifact integrity.
 - **Interventions are suggestions** — Save plays are rule-based ideas from model drivers. Nothing is sent to customers or CRM systems.
 - **SQLite on free Render** — suitable for lightweight hosting, but uploaded cohort data may not survive a redeploy. Use PostgreSQL for longer-lived deployments (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 - **No email verification** — Accounts are email-based, but there is no inbox confirmation flow yet.
-- **Screenshots** — README links to the live app for now; add images under `docs/screenshots/` when you have them.
 
 ---
 
